@@ -1,0 +1,87 @@
+"""
+main.py — FastAPI application entry point for AI-Studio.
+"""
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from backend.config import get_settings
+from backend.utils.logger import configure_logging, get_logger
+from backend.routes import generate, jobs, health
+
+# ── Boot ─────────────────────────────────────────────────────────────────────
+
+configure_logging()
+logger = get_logger("ai_studio.main")
+settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info(
+        "startup",
+        app="AI-Studio",
+        fal_model=settings.fal_image_model,
+        replicate_model=settings.replicate_video_model,
+        groq_model=settings.groq_model,
+        # NEVER log key values — only confirm they are set
+        fal_key_set=bool(settings.fal_key),
+        replicate_key_set=bool(settings.replicate_api_token),
+        groq_key_set=bool(settings.groq_api_key),
+    )
+    yield
+    logger.info("shutdown", app="AI-Studio")
+
+
+# ── App ───────────────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="AI-Studio",
+    description="AI-powered image and video generation — internal POC",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Global exception handler — never expose raw stack traces ──────────────────
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "unhandled_exception",
+        path=request.url.path,
+        method=request.method,
+        error_type=type(exc).__name__,
+        error=str(exc),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "internal_error",
+            "message": "An unexpected error occurred. Please try again.",
+        },
+    )
+
+# ── Routers ───────────────────────────────────────────────────────────────────
+
+app.include_router(generate.router)
+app.include_router(jobs.router)
+app.include_router(health.router)
+
+
+@app.get("/", tags=["root"])
+async def root():
+    return {"service": "AI-Studio", "version": "0.1.0", "docs": "/docs"}
