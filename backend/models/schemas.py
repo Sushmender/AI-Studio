@@ -58,6 +58,11 @@ class JobRecord(BaseModel):
     estimated_wait_seconds: Optional[int] = None  # for video jobs
 
 
+class EnhancedPrompt(BaseModel):
+    raw_prompt: str
+    enhanced_prompt: str
+
+
 # ── Responses ─────────────────────────────────────────────────────────────────
 
 class JobResponse(BaseModel):

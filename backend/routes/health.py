@@ -23,8 +23,8 @@ async def _probe_fal() -> ServiceHealth:
     start = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(
-                "https://fal.run/fal-ai/flux/dev",
+            resp = await client.head(
+                "https://fal.ai",
                 headers={"Authorization": f"Key {settings.fal_key}"},
             )
         latency = (time.monotonic() - start) * 1000

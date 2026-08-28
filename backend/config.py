@@ -23,7 +23,10 @@ class Settings(BaseSettings):
     # ── Model IDs ────────────────────────────────────────────────────────────
     fal_image_model: str = "fal-ai/flux/dev"
     replicate_video_model: str = "luma/dream-machine"
-    groq_model: str = "llama3-70b-8192"
+    groq_model: str = "qwen/qwen3.6-27b"
+
+    # ── Mocking (Development mode) ───────────────────────────────────────────
+    mock_apis: bool = True
 
     # ── Timeouts (seconds) ───────────────────────────────────────────────────
     fal_timeout: int = 30
