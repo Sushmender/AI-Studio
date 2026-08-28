@@ -44,7 +44,7 @@ async def _probe_replicate() -> ServiceHealth:
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get(
-                "https://api.replicate.com/v1/models/luma/dream-machine",
+                "https://api.replicate.com/v1/models/luma/ray-flash-2-720p",
                 headers={"Authorization": f"Bearer {settings.replicate_api_token}"},
             )
         latency = (time.monotonic() - start) * 1000

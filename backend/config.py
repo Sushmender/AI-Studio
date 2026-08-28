@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # ── Model IDs ────────────────────────────────────────────────────────────
     fal_image_model: str = "fal-ai/flux/dev"
-    replicate_video_model: str = "luma/dream-machine"
+    replicate_video_model: str = "luma/ray-flash-2-720p"
     groq_model: str = "qwen/qwen3.6-27b"
 
     # ── Mocking (Development mode) ───────────────────────────────────────────

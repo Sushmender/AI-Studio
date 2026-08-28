@@ -69,8 +69,8 @@ async def _run_image_job(job_id: str, request: GenerateRequest) -> None:
 
 
 async def _run_video_job(job_id: str, request: GenerateRequest) -> None:
-    bind_job_context(job_id=job_id, provider="replicate", model="luma/dream-machine", mode="video")
-    await job_store.update_job(job_id, status=JobStatus.generating, provider="replicate", model="luma/dream-machine")
+    bind_job_context(job_id=job_id, provider="replicate", model="luma/ray-flash-2-720p", mode="video")
+    await job_store.update_job(job_id, status=JobStatus.generating, provider="replicate", model="luma/ray-flash-2-720p")
     logger.info("video_job_started", prompt_length=len(request.prompt))
 
     start = time.monotonic()
@@ -159,7 +159,7 @@ async def generate_video(request: GenerateRequest, req: Request):
         mode=GenerationMode.video,
         raw_prompt=request.prompt,
         provider="replicate",
-        model="luma/dream-machine",
+        model="luma/ray-flash-2-720p",
         estimated_wait_seconds=180,  # 2-5 min — show in UI
     )
     await job_store.create_job(record)
