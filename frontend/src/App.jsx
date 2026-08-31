@@ -1,0 +1,245 @@
+/**
+ * App.jsx — Orchestrates all state for AI-Studio frontend.
+ *
+ * State:
+ *   jobs          — array of job records (active + recent), newest first
+ *   activeJobId   — the job currently being polled
+ *   activeMode    — mode of the active job
+ *   lastSubmit    — { prompt, mode } of the last submission (for retry)
+ *
+ * Flow:
+ *   1. User submits → generateImage/generateVideo → returns job_id
+ *   2. App stores job, sets activeJobId
+ *   3. useJobPolling polls and updates the job in `jobs[]`
+ *   4. On done → gallery.addItem(result)
+ *   5. On failed → ErrorState shown
+ *   6. Gallery persists across refreshes via useGallery (localStorage)
+ */
+import { useState, useCallback, useEffect } from 'react';
+import { generateImage, generateVideo } from './api/client';
+import { useJobPolling } from './hooks/useJobPolling';
+import { useGallery } from './hooks/useGallery';
+import { PromptConsole } from './components/PromptConsole';
+import { JobStatusStrip } from './components/JobStatusStrip';
+import { GeneratingState } from './components/GeneratingState';
+import { ErrorState } from './components/ErrorState';
+import { ResultGallery } from './components/ResultGallery';
+
+const MAX_RECENT_JOBS = 20;
+
+export default function App() {
+  const [jobs, setJobs] = useState([]);
+  const [activeJobId, setActiveJobId] = useState(null);
+  const [activeMode, setActiveMode] = useState('image');
+  const [submitError, setSubmitError] = useState(null);   // error from the POST call itself
+  const [lastSubmit, setLastSubmit] = useState(null);     // { prompt, mode } for retry
+
+  const gallery = useGallery();
+
+  // Poll the active job
+  const { status, result, error: pollError, elapsedMs, estimatedWait } = useJobPolling(
+    activeJobId,
+    activeMode,
+  );
+
+  // Keep the jobs[] list in sync with polling output
+  useEffect(() => {
+    if (!activeJobId) return;
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.job_id === activeJobId
+          ? {
+              ...j,
+              status: status ?? j.status,
+              elapsedMs,
+              estimatedWait,
+              error: pollError?.message ?? j.error,
+            }
+          : j,
+      ),
+    );
+  }, [activeJobId, status, elapsedMs, estimatedWait, pollError]);
+
+  // When a job completes, add to gallery
+  useEffect(() => {
+    if (status === 'done' && result?.result_url && activeJobId) {
+      // Merge job metadata into gallery item
+      const activeJob = jobs.find((j) => j.job_id === activeJobId);
+      gallery.addItem({
+        ...result,
+        job_id: activeJobId,
+        raw_prompt: activeJob?.raw_prompt,
+        enhanced_prompt: activeJob?.enhanced_prompt,
+      });
+    }
+  }, [status, result, activeJobId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update enhanced_prompt in jobs[] when polling returns it
+  useEffect(() => {
+    if (!activeJobId) return;
+    // The polling hook doesn't expose enhanced_prompt directly —
+    // we read it from the job status via the poll() call in useJobPolling.
+    // To surface it here, we add it to the job when the result arrives.
+    if (result?.enhanced_prompt) {
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.job_id === activeJobId ? { ...j, enhanced_prompt: result.enhanced_prompt } : j,
+        ),
+      );
+    }
+  }, [result, activeJobId]);
+
+  // ── Submit handlers ─────────────────────────────────────────────────────────
+
+  /**
+   * Image submission — uses the 3-stage structured pipeline.
+   * attributes: { subject, action, location, composition, style }
+   */
+  const handleSubmitImage = useCallback(
+    async ({ attributes }) => {
+      setSubmitError(null);
+      setLastSubmit({ type: 'image', attributes });
+
+      try {
+        // Send attributes to backend — Groq Call 2 + fal.ai happen server-side
+        const jobResp = await generateImage('', { attributes });
+
+        const newJob = {
+          job_id: jobResp.job_id,
+          mode: 'image',
+          raw_prompt: `Structured: ${attributes.subject}`,
+          enhanced_prompt: null,
+          status: 'queued',
+          elapsedMs: 0,
+          estimatedWait: null,
+          error: null,
+        };
+
+        setJobs((prev) => [newJob, ...prev].slice(0, MAX_RECENT_JOBS));
+        setActiveJobId(jobResp.job_id);
+        setActiveMode('image');
+      } catch (err) {
+        setSubmitError({
+          errorType: err.errorType ?? 'generic_failed',
+          message: err.userMessage ?? err.message,
+          provider: err.provider ?? '',
+        });
+      }
+    },
+    [],
+  );
+
+  /**
+   * Video submission — structured 3-stage pipeline.
+   */
+  const handleSubmitVideo = useCallback(
+    async ({ video_attributes }) => {
+      setSubmitError(null);
+      setLastSubmit({ type: 'video', video_attributes });
+
+      try {
+        const jobResp = await generateVideo('', { video_attributes });
+
+        const newJob = {
+          job_id: jobResp.job_id,
+          mode: 'video',
+          raw_prompt: video_attributes ? video_attributes.subject : 'Video Generation',
+          enhanced_prompt: null,
+          status: 'queued',
+          elapsedMs: 0,
+          estimatedWait: jobResp.estimated_wait_seconds
+            ? jobResp.estimated_wait_seconds * 1000
+            : null,
+          error: null,
+        };
+
+        setJobs((prev) => [newJob, ...prev].slice(0, MAX_RECENT_JOBS));
+        setActiveJobId(jobResp.job_id);
+        setActiveMode('video');
+      } catch (err) {
+        setSubmitError({
+          errorType: err.errorType ?? 'generic_failed',
+          message: err.userMessage ?? err.message,
+          provider: err.provider ?? '',
+        });
+      }
+    },
+    [],
+  );
+
+  const handleRetry = useCallback(() => {
+    if (!lastSubmit) return;
+    setSubmitError(null);
+    if (lastSubmit.type === 'image') handleSubmitImage(lastSubmit);
+    else handleSubmitVideo(lastSubmit);
+  }, [lastSubmit, handleSubmitImage, handleSubmitVideo]);
+
+  // ── Derived state ───────────────────────────────────────────────────────────
+
+  const activeJob = jobs.find((j) => j.job_id === activeJobId);
+  const isGenerating = status === 'queued' || status === 'generating';
+  const isFailed = status === 'failed';
+  const isDone = status === 'done';
+
+  // The error to display — submit error takes priority, then poll error
+  const displayError = submitError || (isFailed ? (pollError ?? { errorType: 'generic_failed', message: 'Generation failed — please try again', provider: '' }) : null);
+
+  return (
+    <div className="app">
+      {/* ── Header ── */}
+      <header className="app-header">
+        <div className="app-header__inner">
+          <h1 className="app-header__logo">
+            <span className="app-header__logo-mark">◈</span> AI-Studio
+          </h1>
+          <p className="app-header__tagline">Image &amp; Video Generation</p>
+        </div>
+      </header>
+
+      <main className="app-main">
+        <div className="app-layout">
+
+          {/* ── Left column: console + status ── */}
+          <div className="app-layout__left">
+            <PromptConsole
+              onSubmitImage={handleSubmitImage}
+              onSubmitVideo={handleSubmitVideo}
+              isGenerating={isGenerating}
+            />
+
+            {/* Generating animation */}
+            {isGenerating && (
+              <GeneratingState
+                mode={activeMode}
+                elapsedMs={elapsedMs}
+                estimatedWait={estimatedWait}
+              />
+            )}
+
+            {/* Error state */}
+            {displayError && (
+              <ErrorState
+                errorType={displayError.errorType}
+                message={displayError.message}
+                provider={displayError.provider}
+                onRetry={handleRetry}
+              />
+            )}
+
+            {/* Job strip */}
+            <JobStatusStrip jobs={jobs} />
+          </div>
+
+          {/* ── Right column: gallery ── */}
+          <div className="app-layout__right">
+            <ResultGallery
+              items={gallery.items}
+              loading={gallery.loading}
+            />
+          </div>
+
+        </div>
+      </main>
+    </div>
+  );
+}

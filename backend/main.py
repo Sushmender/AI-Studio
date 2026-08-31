@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from backend.config import get_settings
 from backend.utils.logger import configure_logging, get_logger
-from backend.routes import generate, jobs, health
+from backend.routes import generate, jobs, health, analyse
 
 # ── Boot ─────────────────────────────────────────────────────────────────────
 
@@ -80,6 +80,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(generate.router)
 app.include_router(jobs.router)
 app.include_router(health.router)
+app.include_router(analyse.router)
 
 
 @app.get("/", tags=["root"])

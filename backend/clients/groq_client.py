@@ -2,12 +2,13 @@
 groq_client.py — Groq Prompt Enhancement Client
 """
 import asyncio
+import json
 from typing import Literal
 from groq import AsyncGroq
 from backend.config import get_settings
 from backend.utils.logger import get_logger
-from backend.utils.retry import async_retry, NonRetryableError, RetryableError
-from backend.models.schemas import EnhancedPrompt
+from backend.utils.retry import async_retry, RetryableError
+from backend.models.schemas import EnhancedPrompt, ImageAttributes, VideoAttributes
 
 logger = get_logger(__name__)
 
@@ -60,3 +61,323 @@ async def enhance_prompt(raw: str, mode: Literal["image", "video"]) -> EnhancedP
     except Exception as e:
         logger.error("groq_unexpected_error", error=str(e))
         raise RetryableError(f"Groq unexpected error: {e}") from e
+
+
+# ── Groq Call 1: Analyse description → 5 structured attributes ───────────────────
+
+ANALYSE_SYSTEM_PROMPT = """\
+You are a professional image director and visual prompt engineer.
+
+The user will give you a natural language description of an image they want generated.
+Your job is to extract and infer exactly 5 creative attributes from their description.
+
+Rules:
+- Even if the user hasn't mentioned an attribute, you MUST invent a suitable value that
+  fits the overall aesthetic coherently.
+- Be specific, evocative, and cinematically aware.
+- Keep each value under 25 words.
+
+Respond with ONLY a JSON object — no markdown, no explanation — in this exact format:
+{
+  "subject":     "<who or what is the main focus>",
+  "action":      "<what is happening or the pose/state>",
+  "location":    "<the setting, environment, and time of day>",
+  "composition": "<camera angle, framing, depth of field, lighting setup>",
+  "style":       "<overall aesthetic, art movement, color palette, mood>"
+}
+"""
+
+_ATTRIBUTE_KEYS = {"subject", "action", "location", "composition", "style"}
+_FALLBACK_ATTRIBUTES = {
+    "subject":     "A main subject fitting the described scene",
+    "action":      "Standing naturally in the environment",
+    "location":    "An environment that matches the described mood",
+    "composition": "Eye-level shot, balanced framing, natural lighting",
+    "style":       "Cinematic realism, neutral color palette, photographic quality",
+}
+
+
+async def analyse_image_attributes(description: str) -> ImageAttributes:
+    """Groq Call 1: Analyse a raw user description and extract 5 image attributes."""
+    settings = get_settings()
+
+    if settings.mock_apis:
+        await asyncio.sleep(0.6)
+        return ImageAttributes(
+            subject=f"A subject from: {description[:40]}",
+            action="Standing in a dramatic pose",
+            location="A cinematic environment matching the description",
+            composition="Wide angle shot, golden hour lighting, shallow depth of field",
+            style="Cinematic realism, warm tones, photorealistic quality",
+        )
+
+    client = AsyncGroq(api_key=settings.groq_api_key)
+    try:
+        completion = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=settings.groq_model,
+                messages=[
+                    {"role": "system", "content": ANALYSE_SYSTEM_PROMPT},
+                    {"role": "user", "content": description},
+                ],
+                temperature=0.75,
+                max_tokens=400,
+                response_format={"type": "json_object"},
+            ),
+            timeout=settings.groq_timeout,
+        )
+
+        raw_json = completion.choices[0].message.content.strip()
+        data = json.loads(raw_json)
+
+        # Ensure all 5 keys are present; fill missing with sensible fallbacks
+        attrs = {k: data.get(k, _FALLBACK_ATTRIBUTES[k]) for k in _ATTRIBUTE_KEYS}
+        return ImageAttributes(**attrs)
+
+    except asyncio.TimeoutError as e:
+        logger.error("groq_analyse_timeout", error=str(e))
+        raise RetryableError("Image analysis timed out") from e
+    except json.JSONDecodeError as e:
+        logger.error("groq_analyse_json_error", error=str(e))
+        raise RetryableError("Failed to parse analysis response") from e
+    except Exception as e:
+        logger.error("groq_analyse_error", error=str(e))
+        raise RetryableError(f"Image analysis failed: {e}") from e
+
+
+# ── Groq Call 2: Synthesize attributes → optimized image prompt ─────────────────
+
+SYNTHESIZE_SYSTEM_PROMPT = """\
+You are a master AI image prompt engineer working with diffusion models.
+
+You will receive 5 structured visual attributes for an image. Your job is to synthesize
+these into a single, highly effective image generation prompt.
+
+Rules:
+- Weave all 5 attributes together naturally — do NOT list them as labels.
+- Be vivid, specific, and rich with sensory detail.
+- The prompt should read as a single flowing paragraph.
+- Keep it between 60–120 words.
+- Do NOT include any explanation, preamble, or labels — return ONLY the prompt text.
+"""
+
+
+async def synthesize_image_prompt(attributes: ImageAttributes) -> str:
+    """Groq Call 2: Synthesize the user-confirmed attributes into an optimized fal.ai prompt."""
+    settings = get_settings()
+
+    if settings.mock_apis:
+        await asyncio.sleep(0.4)
+        return (
+            f"{attributes.subject} — {attributes.action}. Set in {attributes.location}. "
+            f"Shot with {attributes.composition}. Rendered in {attributes.style}. "
+            "8k resolution, photorealistic, highly detailed."
+        )
+
+    client = AsyncGroq(api_key=settings.groq_api_key)
+    attribute_text = (
+        f"SUBJECT: {attributes.subject}\n"
+        f"ACTION: {attributes.action}\n"
+        f"LOCATION: {attributes.location}\n"
+        f"COMPOSITION: {attributes.composition}\n"
+        f"STYLE: {attributes.style}"
+    )
+
+    try:
+        completion = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=settings.groq_model,
+                messages=[
+                    {"role": "system", "content": SYNTHESIZE_SYSTEM_PROMPT},
+                    {"role": "user", "content": attribute_text},
+                ],
+                temperature=0.7,
+                max_tokens=200,
+            ),
+            timeout=settings.groq_timeout,
+        )
+        return completion.choices[0].message.content.strip()
+
+    except asyncio.TimeoutError as e:
+        logger.error("groq_synthesize_timeout", error=str(e))
+        raise RetryableError("Prompt synthesis timed out") from e
+    except Exception as e:
+        logger.error("groq_synthesize_error", error=str(e))
+        raise RetryableError(f"Prompt synthesis failed: {e}") from e
+
+
+# ── Groq Call 1 (Video): Analyse description → 10 structured attributes ──────────
+
+VIDEO_ANALYSE_SYSTEM_PROMPT = """\
+You are a professional film director, cinematographer, and video prompt engineer.
+
+The user will give you a natural language description of a video they want generated.
+Your job is to extract and infer exactly 10 creative attributes across 3 groups.
+
+Rules:
+- Even if an attribute is not mentioned, you MUST invent a suitable value that fits
+  the overall aesthetic and narrative coherently.
+- Be specific, evocative, and cinematically precise.
+- Keep each value under 30 words.
+- For DIALOGUE: describe what might be said, or write "No dialogue — ambient sound only" if silent.
+- For SOUND_EFFECTS: describe key sounds, or write "Natural ambient sounds" if nothing specific.
+
+Respond with ONLY a JSON object — no markdown, no explanation — with these exact keys:
+{
+  "subject":           "<who or what is the main focus of the video>",
+  "action":            "<what is happening — motion, behavior, narrative arc>",
+  "scene":             "<when and where — setting, environment, time of day, weather>",
+  "style":             "<artistic filter / aesthetic: cinematic, documentary, animated, etc.>",
+  "temporal_elements": "<time-based changes: slow-mo, time-lapse, transitions, pacing rhythm>",
+  "camera_angles":     "<shot viewpoints: wide, close-up, bird's eye, dutch angle, etc.>",
+  "camera_movements":  "<dynamic experience: dolly, pan, handheld, steadicam, drone, etc.>",
+  "lens_effects":      "<how camera sees: bokeh, anamorphic, rack focus, lens flare, etc.>",
+  "dialogue":          "<spoken words or voice-over in the scene>",
+  "sound_effects":     "<distinct sounds that occur: wind, crowd, footsteps, etc.>"
+}
+"""
+
+_VIDEO_ATTRIBUTE_KEYS = {
+    "subject", "action", "scene", "style", "temporal_elements",
+    "camera_angles", "camera_movements", "lens_effects", "dialogue", "sound_effects",
+}
+
+_VIDEO_FALLBACK_ATTRIBUTES = {
+    "subject":           "A main subject fitting the described scene",
+    "action":            "Moving naturally within the environment",
+    "scene":             "An environment that matches the described mood, daytime",
+    "style":             "Cinematic realism, natural color grading",
+    "temporal_elements": "Real-time pacing, no slow-motion, smooth transitions",
+    "camera_angles":     "Eye-level medium shot, balanced framing",
+    "camera_movements":  "Slow dolly-in, subtle handheld warmth",
+    "lens_effects":      "Shallow depth of field, natural bokeh",
+    "dialogue":          "No dialogue — ambient sound only",
+    "sound_effects":     "Natural ambient sounds matching the environment",
+}
+
+
+async def analyse_video_attributes(description: str) -> VideoAttributes:
+    """Groq Call 1 (Video): Analyse a raw description and extract 10 video attributes."""
+    settings = get_settings()
+
+    if settings.mock_apis:
+        await asyncio.sleep(0.7)
+        return VideoAttributes(
+            subject=f"Subject from: {description[:40]}",
+            action="Moving through the scene with natural energy",
+            scene="An environment that matches the described mood, golden hour",
+            style="Cinematic realism, warm color grading, photorealistic quality",
+            temporal_elements="Real-time pacing, slow-motion at climax, smooth transitions",
+            camera_angles="Wide establishing shot, cutting to medium close-up",
+            camera_movements="Slow dolly-in, subtle handheld warmth, final crane pull-back",
+            lens_effects="Shallow depth of field, natural bokeh, slight lens flare",
+            dialogue="No dialogue — ambient sound only",
+            sound_effects="Natural ambient sounds matching the environment",
+        )
+
+    client = AsyncGroq(api_key=settings.groq_api_key)
+    try:
+        completion = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=settings.groq_model,
+                messages=[
+                    {"role": "system", "content": VIDEO_ANALYSE_SYSTEM_PROMPT},
+                    {"role": "user", "content": description},
+                ],
+                temperature=0.75,
+                max_tokens=600,
+                response_format={"type": "json_object"},
+            ),
+            timeout=settings.groq_timeout,
+        )
+
+        raw_json = completion.choices[0].message.content.strip()
+        data = json.loads(raw_json)
+
+        # Ensure all 10 keys are present; fill missing with sensible fallbacks
+        attrs = {k: data.get(k, _VIDEO_FALLBACK_ATTRIBUTES[k]) for k in _VIDEO_ATTRIBUTE_KEYS}
+        return VideoAttributes(**attrs)
+
+    except asyncio.TimeoutError as e:
+        logger.error("groq_video_analyse_timeout", error=str(e))
+        raise RetryableError("Video analysis timed out") from e
+    except json.JSONDecodeError as e:
+        logger.error("groq_video_analyse_json_error", error=str(e))
+        raise RetryableError("Failed to parse video analysis response") from e
+    except Exception as e:
+        logger.error("groq_video_analyse_error", error=str(e))
+        raise RetryableError(f"Video analysis failed: {e}") from e
+
+
+# ── Groq Call 2 (Video): Synthesize attributes → optimized Replicate prompt ────────
+
+VIDEO_SYNTHESIZE_SYSTEM_PROMPT = """\
+You are a master AI video generation prompt engineer for diffusion-based video models.
+
+You will receive 10 structured video attributes across 3 groups (Overall, Camera, Audio).
+Your job is to synthesize these into a single, highly effective video generation prompt.
+
+Rules:
+- Weave OVERALL and CAMERA attributes naturally into flowing prose — do NOT use labels.
+- Incorporate AUDIO attributes to imply atmosphere and energy in the visuals
+  (the model is visual-only — audio fields guide the scene's mood, not literal sound).
+- Be vivid, specific, cinematic, and motion-aware.
+- The prompt should read as a single flowing paragraph describing the video.
+- Keep it between 80–150 words.
+- Do NOT include labels, section headers, or any explanation — return ONLY the prompt text.
+"""
+
+
+async def synthesize_video_prompt(attributes: VideoAttributes) -> str:
+    """Groq Call 2 (Video): Synthesize the user-confirmed 10 attributes into an optimized Replicate prompt."""
+    settings = get_settings()
+
+    if settings.mock_apis:
+        await asyncio.sleep(0.4)
+        return (
+            f"{attributes.subject} — {attributes.action}. "
+            f"Set in {attributes.scene}. "
+            f"{attributes.style} aesthetic with {attributes.temporal_elements}. "
+            f"Shot with {attributes.camera_angles}, {attributes.camera_movements}. "
+            f"{attributes.lens_effects}. "
+            f"Atmosphere: {attributes.sound_effects}."
+        )
+
+    client = AsyncGroq(api_key=settings.groq_api_key)
+    attribute_text = (
+        f"OVERALL\n"
+        f"  Subject:            {attributes.subject}\n"
+        f"  Action:             {attributes.action}\n"
+        f"  Scene:              {attributes.scene}\n"
+        f"  Style:              {attributes.style}\n"
+        f"  Temporal Elements:  {attributes.temporal_elements}\n\n"
+        f"CAMERA\n"
+        f"  Camera Angles:    {attributes.camera_angles}\n"
+        f"  Camera Movements: {attributes.camera_movements}\n"
+        f"  Lens Effects:     {attributes.lens_effects}\n\n"
+        f"AUDIO (visual mood guidance only)\n"
+        f"  Dialogue:       {attributes.dialogue}\n"
+        f"  Sound Effects:  {attributes.sound_effects}"
+    )
+
+    try:
+        completion = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=settings.groq_model,
+                messages=[
+                    {"role": "system", "content": VIDEO_SYNTHESIZE_SYSTEM_PROMPT},
+                    {"role": "user", "content": attribute_text},
+                ],
+                temperature=0.7,
+                max_tokens=250,
+            ),
+            timeout=settings.groq_timeout,
+        )
+        return completion.choices[0].message.content.strip()
+
+    except asyncio.TimeoutError as e:
+        logger.error("groq_video_synthesize_timeout", error=str(e))
+        raise RetryableError("Video prompt synthesis timed out") from e
+    except Exception as e:
+        logger.error("groq_video_synthesize_error", error=str(e))
+        raise RetryableError(f"Video prompt synthesis failed: {e}") from e
