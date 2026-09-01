@@ -126,10 +126,31 @@ export function PromptConsole({
     resetVideo(); // clear any pending video analysis
   }
 
+  function handleStartOver() {
+    reset();
+    resetVideo();
+    setPrompt('');
+    setValidationError('');
+  }
+
   return (
     <section className="prompt-console" aria-label="Prompt Console">
       <header className="prompt-console__header">
-        <h2 className="prompt-console__title">Prompt Console</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h2 className="prompt-console__title">Prompt Console</h2>
+          {(prompt.length > 0 || imageState === 'ready' || videoState === 'ready') && (
+            <button 
+              type="button" 
+              className="btn btn--secondary" 
+              style={{ padding: '2px 8px', fontSize: '10px', height: '20px', minHeight: '20px' }}
+              onClick={handleStartOver}
+              disabled={isGenerating || analysing || analysingVideo}
+              aria-label="Start fresh"
+            >
+              ✕ Clear
+            </button>
+          )}
+        </div>
 
         {/* Mode toggle — hidden once attributes are shown */}
         {imageState !== 'ready' && videoState !== 'ready' && (

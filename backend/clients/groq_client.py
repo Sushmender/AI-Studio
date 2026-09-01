@@ -12,6 +12,36 @@ from backend.models.schemas import EnhancedPrompt, ImageAttributes, VideoAttribu
 
 logger = get_logger(__name__)
 
+
+def _extract_json(text: str) -> dict:
+    """Parse JSON from a Groq response, stripping markdown, conversational text, and <think> blocks.
+    Finds the first '{' and last '}' to extract just the JSON object.
+    """
+    text = text.strip()
+    
+    # Strip <think>...</think> chain-of-thought block if present (common with Qwen models)
+    if "<think>" in text:
+        end_think = text.find("</think>")
+        if end_think != -1:
+            text = text[end_think + 8:].strip()
+        else:
+            # Malformed or truncated think block, try to just clear everything before the last }
+            # Wait, if it's truncated, the JSON isn't even there. But let's fallback cleanly.
+            pass
+            
+    # Try to find JSON boundaries
+    start_idx = text.find("{")
+    end_idx = text.rfind("}")
+    
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        text = text[start_idx:end_idx + 1]
+    
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        logger.error("json_extraction_failed", raw_text=text, error=str(e))
+        raise e
+
 SYSTEM_PROMPTS = {
     "image": "You are a world-class image prompt engineer. Rewrite the user's prompt to be richly descriptive: include lighting, composition, style, color palette, and mood. Keep it under 200 words. Return only the enhanced prompt, no explanation.",
     "video": "You are a world-class video prompt engineer. Rewrite the user's prompt to describe motion, pacing, camera movement, scene transitions, and visual atmosphere. Keep it under 150 words. Return only the enhanced prompt, no explanation."
@@ -20,14 +50,6 @@ SYSTEM_PROMPTS = {
 @async_retry(max_attempts=2, backoff_base=1.5)
 async def enhance_prompt(raw: str, mode: Literal["image", "video"]) -> EnhancedPrompt:
     settings = get_settings()
-    
-    if settings.mock_apis:
-        logger.info("mock_groq_enhancement", prompt=raw)
-        await asyncio.sleep(0.5)
-        return EnhancedPrompt(
-            raw_prompt=raw,
-            enhanced_prompt=f"MOCKED ENHANCED {mode.upper()} PROMPT: {raw} with cinematic lighting, 8k resolution, photorealistic"
-        )
 
     try:
         # Initialize Groq client. Uses GROQ_API_KEY from environment automatically if set
@@ -101,16 +123,6 @@ async def analyse_image_attributes(description: str) -> ImageAttributes:
     """Groq Call 1: Analyse a raw user description and extract 5 image attributes."""
     settings = get_settings()
 
-    if settings.mock_apis:
-        await asyncio.sleep(0.6)
-        return ImageAttributes(
-            subject=f"A subject from: {description[:40]}",
-            action="Standing in a dramatic pose",
-            location="A cinematic environment matching the description",
-            composition="Wide angle shot, golden hour lighting, shallow depth of field",
-            style="Cinematic realism, warm tones, photorealistic quality",
-        )
-
     client = AsyncGroq(api_key=settings.groq_api_key)
     try:
         completion = await asyncio.wait_for(
@@ -121,14 +133,13 @@ async def analyse_image_attributes(description: str) -> ImageAttributes:
                     {"role": "user", "content": description},
                 ],
                 temperature=0.75,
-                max_tokens=400,
-                response_format={"type": "json_object"},
+                max_tokens=2000,
             ),
             timeout=settings.groq_timeout,
         )
 
         raw_json = completion.choices[0].message.content.strip()
-        data = json.loads(raw_json)
+        data = _extract_json(raw_json)
 
         # Ensure all 5 keys are present; fill missing with sensible fallbacks
         attrs = {k: data.get(k, _FALLBACK_ATTRIBUTES[k]) for k in _ATTRIBUTE_KEYS}
@@ -165,14 +176,6 @@ Rules:
 async def synthesize_image_prompt(attributes: ImageAttributes) -> str:
     """Groq Call 2: Synthesize the user-confirmed attributes into an optimized fal.ai prompt."""
     settings = get_settings()
-
-    if settings.mock_apis:
-        await asyncio.sleep(0.4)
-        return (
-            f"{attributes.subject} — {attributes.action}. Set in {attributes.location}. "
-            f"Shot with {attributes.composition}. Rendered in {attributes.style}. "
-            "8k resolution, photorealistic, highly detailed."
-        )
 
     client = AsyncGroq(api_key=settings.groq_api_key)
     attribute_text = (
@@ -260,21 +263,6 @@ async def analyse_video_attributes(description: str) -> VideoAttributes:
     """Groq Call 1 (Video): Analyse a raw description and extract 10 video attributes."""
     settings = get_settings()
 
-    if settings.mock_apis:
-        await asyncio.sleep(0.7)
-        return VideoAttributes(
-            subject=f"Subject from: {description[:40]}",
-            action="Moving through the scene with natural energy",
-            scene="An environment that matches the described mood, golden hour",
-            style="Cinematic realism, warm color grading, photorealistic quality",
-            temporal_elements="Real-time pacing, slow-motion at climax, smooth transitions",
-            camera_angles="Wide establishing shot, cutting to medium close-up",
-            camera_movements="Slow dolly-in, subtle handheld warmth, final crane pull-back",
-            lens_effects="Shallow depth of field, natural bokeh, slight lens flare",
-            dialogue="No dialogue — ambient sound only",
-            sound_effects="Natural ambient sounds matching the environment",
-        )
-
     client = AsyncGroq(api_key=settings.groq_api_key)
     try:
         completion = await asyncio.wait_for(
@@ -285,14 +273,13 @@ async def analyse_video_attributes(description: str) -> VideoAttributes:
                     {"role": "user", "content": description},
                 ],
                 temperature=0.75,
-                max_tokens=600,
-                response_format={"type": "json_object"},
+                max_tokens=2000,
             ),
             timeout=settings.groq_timeout,
         )
 
         raw_json = completion.choices[0].message.content.strip()
-        data = json.loads(raw_json)
+        data = _extract_json(raw_json)
 
         # Ensure all 10 keys are present; fill missing with sensible fallbacks
         attrs = {k: data.get(k, _VIDEO_FALLBACK_ATTRIBUTES[k]) for k in _VIDEO_ATTRIBUTE_KEYS}
@@ -331,17 +318,6 @@ Rules:
 async def synthesize_video_prompt(attributes: VideoAttributes) -> str:
     """Groq Call 2 (Video): Synthesize the user-confirmed 10 attributes into an optimized Replicate prompt."""
     settings = get_settings()
-
-    if settings.mock_apis:
-        await asyncio.sleep(0.4)
-        return (
-            f"{attributes.subject} — {attributes.action}. "
-            f"Set in {attributes.scene}. "
-            f"{attributes.style} aesthetic with {attributes.temporal_elements}. "
-            f"Shot with {attributes.camera_angles}, {attributes.camera_movements}. "
-            f"{attributes.lens_effects}. "
-            f"Atmosphere: {attributes.sound_effects}."
-        )
 
     client = AsyncGroq(api_key=settings.groq_api_key)
     attribute_text = (

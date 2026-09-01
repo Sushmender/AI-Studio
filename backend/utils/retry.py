@@ -6,8 +6,10 @@ Rules:
   - Does NOT retry on: 4xx errors (validation / auth issues)
   - Max attempts: configurable (default 2)
   - Backoff: base ** attempt seconds between retries
+  - Binds retry_count to structlog contextvars so all log calls include it.
 """
 import asyncio
+import structlog
 import functools
 import time
 from typing import Callable, Type
@@ -31,6 +33,8 @@ class NonRetryableError(Exception):
 
 def _is_retryable(exc: BaseException) -> bool:
     """Return True if this exception warrants a retry."""
+    if isinstance(exc, RetryableError):
+        return True  # always retry our custom transient errors
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
         return True
     if isinstance(exc, httpx.TimeoutException):
@@ -64,13 +68,19 @@ def async_retry(
             last_exc: BaseException | None = None
             for attempt in range(1, max_attempts + 1):
                 try:
-                    return await func(*args, **kwargs)
+                    result = await func(*args, **kwargs)
+                    # Bind final retry_count so downstream log calls include it
+                    structlog.contextvars.bind_contextvars(retry_count=attempt - 1)
+                    return result
                 except NonRetryableError:
+                    structlog.contextvars.bind_contextvars(retry_count=attempt - 1)
                     raise
                 except retryable_exceptions as exc:
                     if not _is_retryable(exc):
+                        structlog.contextvars.bind_contextvars(retry_count=attempt - 1)
                         raise  # e.g. 4xx HTTPStatusError — propagate immediately
                     last_exc = exc
+                    structlog.contextvars.bind_contextvars(retry_count=attempt)
                     if attempt < max_attempts:
                         wait = backoff_base ** (attempt - 1)
                         logger.warning(

@@ -1,8 +1,12 @@
 /**
- * GeneratingState.jsx — Visual feedback while a job is in progress.
+ * GeneratingState.jsx — Cosmic observatory animation while a job is in progress.
  *
- * Day 3: functional placeholder (spinner + text).
- * Day 5: replaced with the full HUD choreographed animation.
+ * Day 5: Full choreographed cosmic animation:
+ *   - Two orbital rings with pulsing amber glow
+ *   - Two orbiting bodies (moon + star) on different tracks and speeds
+ *   - Pulsing golden core
+ *   - 6 floating ambient particles
+ *   - Live elapsed timer in monospace HUD style
  *
  * Props:
  *   mode          — "image" | "video"
@@ -16,34 +20,59 @@ function formatElapsed(ms) {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   const rem = s % 60;
-  return `${m}m ${rem}s`;
+  return `${m}m ${String(rem).padStart(2, '0')}s`;
 }
 
 export function GeneratingState({ mode, elapsedMs, estimatedWait }) {
   const isVideo = mode === 'video';
-  const elapsed = formatElapsed(elapsedMs);
+  const modeLabel = isVideo ? '// RENDERING VIDEO' : '// GENERATING IMAGE';
 
   return (
     <div className="generating-state" role="status" aria-live="polite" aria-label="Generating">
-      {/* Spinner placeholder — will be replaced by HUD animation on Day 5 */}
-      <div className="generating-state__spinner" aria-hidden="true">
-        <div className="spinner" />
+
+      {/* ── Cosmic animation ───────────────────────────────────────────── */}
+      <div className="cosmo-anim" aria-hidden="true">
+
+        {/* Static orbital rings */}
+        <div className="cosmo-anim__ring cosmo-anim__ring--outer" />
+        <div className="cosmo-anim__ring cosmo-anim__ring--inner" />
+
+        {/* Orbiting body 1 — outer track, moon */}
+        <div className="cosmo-anim__orbit cosmo-anim__orbit--1">
+          <span className="cosmo-anim__body cosmo-anim__body--moon" />
+        </div>
+
+        {/* Orbiting body 2 — inner track, star, counter-clockwise */}
+        <div className="cosmo-anim__orbit cosmo-anim__orbit--2">
+          <span className="cosmo-anim__body cosmo-anim__body--star" />
+        </div>
+
+        {/* Pulsing core */}
+        <div className="cosmo-anim__core" />
+
+        {/* Ambient particles */}
+        <span className="cosmo-anim__particle" />
+        <span className="cosmo-anim__particle" />
+        <span className="cosmo-anim__particle" />
+        <span className="cosmo-anim__particle" />
+        <span className="cosmo-anim__particle" />
+        <span className="cosmo-anim__particle" />
       </div>
 
+      {/* ── Status info ────────────────────────────────────────────────── */}
       <div className="generating-state__info">
-        <p className="generating-state__label">
-          {isVideo ? 'Generating video' : 'Generating image'}
-          <span className="generating-state__dots" aria-hidden="true" />
-        </p>
-        <p className="generating-state__elapsed">
-          Elapsed: <strong>{elapsed}</strong>
-          {isVideo && estimatedWait && (
-            <span className="generating-state__estimate"> · Estimated: ~2–5 min</span>
-          )}
-        </p>
+        <p className="generating-state__label">{modeLabel}</p>
+
+        <div className="generating-state__elapsed">
+          <span className="generating-state__elapsed-label">Elapsed</span>
+          <span className="generating-state__elapsed-value">
+            {formatElapsed(elapsedMs)}
+          </span>
+        </div>
+
         {isVideo && (
           <p className="generating-state__note">
-            Video generation takes 2–5 minutes. You can submit another job while this runs.
+            Est. 2–5 min · You can submit another job while this runs
           </p>
         )}
       </div>

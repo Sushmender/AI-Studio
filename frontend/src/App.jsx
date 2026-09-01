@@ -1,6 +1,8 @@
 /**
  * App.jsx — Orchestrates all state for AI-Studio frontend.
  *
+ * Day 5: HUD header + cosmic starfield background added.
+ *
  * State:
  *   jobs          — array of job records (active + recent), newest first
  *   activeJobId   — the job currently being polled
@@ -63,7 +65,6 @@ export default function App() {
   // When a job completes, add to gallery
   useEffect(() => {
     if (status === 'done' && result?.result_url && activeJobId) {
-      // Merge job metadata into gallery item
       const activeJob = jobs.find((j) => j.job_id === activeJobId);
       gallery.addItem({
         ...result,
@@ -77,9 +78,6 @@ export default function App() {
   // Update enhanced_prompt in jobs[] when polling returns it
   useEffect(() => {
     if (!activeJobId) return;
-    // The polling hook doesn't expose enhanced_prompt directly —
-    // we read it from the job status via the poll() call in useJobPolling.
-    // To surface it here, we add it to the job when the result arrives.
     if (result?.enhanced_prompt) {
       setJobs((prev) =>
         prev.map((j) =>
@@ -101,7 +99,6 @@ export default function App() {
       setLastSubmit({ type: 'image', attributes });
 
       try {
-        // Send attributes to backend — Groq Call 2 + fal.ai happen server-side
         const jobResp = await generateImage('', { attributes });
 
         const newJob = {
@@ -179,20 +176,37 @@ export default function App() {
   const activeJob = jobs.find((j) => j.job_id === activeJobId);
   const isGenerating = status === 'queued' || status === 'generating';
   const isFailed = status === 'failed';
-  const isDone = status === 'done';
 
-  // The error to display — submit error takes priority, then poll error
   const displayError = submitError || (isFailed ? (pollError ?? { errorType: 'generic_failed', message: 'Generation failed — please try again', provider: '' }) : null);
 
   return (
     <div className="app">
-      {/* ── Header ── */}
+      {/* ── Cosmic Starfield Background ── */}
+      <div className="starfield" aria-hidden="true" />
+
+      {/* ── Header — HUD Style ── */}
       <header className="app-header">
         <div className="app-header__inner">
           <h1 className="app-header__logo">
-            <span className="app-header__logo-mark">◈</span> AI-Studio
+            <span className="app-header__logo-mark">◈</span>
+            AI//STUDIO
           </h1>
+
+          <div className="app-header__divider" aria-hidden="true" />
+
           <p className="app-header__tagline">Image &amp; Video Generation</p>
+
+          <div className="app-header__spacer" />
+
+          <div className="app-header__hud" aria-label="System status">
+            <div className="hud-stat">
+              <span className="hud-stat__dot" aria-hidden="true" />
+              <span>Backend Online</span>
+            </div>
+            <div className="hud-stat">
+              <span>{new Date().toISOString().slice(0, 10)}</span>
+            </div>
+          </div>
         </div>
       </header>
 

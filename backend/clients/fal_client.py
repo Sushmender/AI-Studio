@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 async def generate_image(prompt: str, width: int = 1024, height: int = 1024, num_inference_steps: int = 28, job_id: str = "") -> dict:
     settings = get_settings()
     
-    if settings.mock_apis:
+    if settings.mock_generation_apis:
         logger.info("mock_fal_generation", prompt=prompt)
         await asyncio.sleep(2)  # Simulate generation time
         return {"url": "https://fal.media/files/mock_image.png"}

@@ -115,16 +115,35 @@ function VideoAttributeRow({ meta, value, onUpdate, muted = false }) {
 
       <div className="attr-row__value-col">
         {editing ? (
-          <textarea
-            ref={textareaRef}
-            className="attr-row__textarea"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={handleKeyDown}
-            rows={2}
-            aria-label={`Edit ${meta.label}`}
-          />
+          <div className="attr-row__editor">
+            <textarea
+              ref={textareaRef}
+              className="attr-row__textarea"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={4}
+              aria-label={`Edit ${meta.label}`}
+            />
+            <div className="attr-row__editor-actions">
+              <button 
+                type="button" 
+                className="btn btn--secondary" 
+                onClick={() => { setEditing(false); setDraft(value); }}
+                style={{ padding: '4px 12px', fontSize: '12px' }}
+              >
+                Cancel
+              </button>
+              <button 
+                type="button" 
+                className="btn btn--primary" 
+                onClick={commitEdit}
+                style={{ padding: '4px 12px', fontSize: '12px' }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
         ) : (
           <button
             type="button"

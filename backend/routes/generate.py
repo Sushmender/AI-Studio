@@ -21,6 +21,7 @@ from backend.clients import fal_client, replicate_client
 from backend.clients.groq_client import synthesize_image_prompt, synthesize_video_prompt
 from backend.services.prompt_service import enhance
 from backend.services.rate_limiter import rate_limiter, RateLimitExceeded
+from backend.utils.tasks import log_task_exception
 
 
 logger = get_logger(__name__)
@@ -217,7 +218,7 @@ async def generate_image(request: GenerateRequest, req: Request):
         model="fal-ai/flux/dev",
     )
     await job_store.create_job(record)
-    asyncio.create_task(_run_image_job(record.job_id, request))
+    asyncio.create_task(_run_image_job(record.job_id, request)).add_done_callback(log_task_exception)
     logger.info("image_job_queued", job_id=record.job_id, has_attributes=request.attributes is not None)
     return JobResponse(
         job_id=record.job_id,
@@ -250,7 +251,7 @@ async def generate_video(request: GenerateRequest, req: Request):
         estimated_wait_seconds=180,  # 2-5 min — show in UI
     )
     await job_store.create_job(record)
-    asyncio.create_task(_run_video_job(record.job_id, request))
+    asyncio.create_task(_run_video_job(record.job_id, request)).add_done_callback(log_task_exception)
     logger.info("video_job_queued", job_id=record.job_id)
     return JobResponse(
         job_id=record.job_id,

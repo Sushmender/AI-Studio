@@ -25,8 +25,9 @@ class Settings(BaseSettings):
     replicate_video_model: str = "luma/ray-flash-2-720p"
     groq_model: str = "qwen/qwen3.6-27b"
 
-    # ── Mocking (Development mode) ───────────────────────────────────────────
-    mock_apis: bool = True
+    # ── Mocking — only gates image/video generation APIs (fal.ai + Replicate)
+    # Groq is always called for real (free tier — no cost to analyse/synthesize)
+    mock_generation_apis: bool = True  # set False to hit fal.ai and Replicate for real
 
     # ── Timeouts (seconds) ───────────────────────────────────────────────────
     fal_timeout: int = 30
