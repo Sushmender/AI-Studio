@@ -38,7 +38,7 @@ export function ErrorState({ errorType = 'generic_failed', message, provider, on
         <span className="error-state__icon" aria-hidden="true">{icon}</span>
         <div className="error-state__title-row">
           <span className="error-state__title">
-            {isGroqTimeout ? 'Prompt Enhancement Timeout' : 'Generation Error'}
+            {isGroqTimeout ? 'Prompt enhancement timeout' : 'That generation didn\'t go through'}
           </span>
           {providerLabel && (
             <span className="error-state__provider-badge">{providerLabel}</span>
@@ -55,7 +55,7 @@ export function ErrorState({ errorType = 'generic_failed', message, provider, on
           className="btn btn--secondary"
           onClick={onRetry}
         >
-          Try Again
+          Retry
         </button>
       )}
     </div>

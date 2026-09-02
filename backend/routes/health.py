@@ -3,6 +3,10 @@ health.py — Health check endpoint.
 
 GET /health → probes fal.ai, Replicate, and Groq in parallel.
 Returns per-service reachability + latency. Never exposes key values.
+
+Results are cached for 30 seconds to avoid hammering provider endpoints
+on every poll — especially important since the frontend HUD might call
+this on every render.
 """
 import asyncio
 import time
@@ -14,6 +18,10 @@ from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["health"])
+
+# ── 30-second in-process cache ────────────────────────────────────────────────
+_CACHE_TTL = 30.0   # seconds
+_health_cache: dict = {}   # keys: "result" (HealthResponse), "ts" (float)
 
 
 async def _probe_fal() -> ServiceHealth:
@@ -76,7 +84,18 @@ async def _probe_groq() -> ServiceHealth:
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Probe all three providers in parallel and report reachability."""
+    """
+    Probe all three providers in parallel and report reachability.
+    Results are cached for 30 s — safe to call frequently.
+    """
+    now = time.monotonic()
+
+    # Return cached result if still fresh
+    if _health_cache and (now - _health_cache["ts"]) < _CACHE_TTL:
+        logger.info("health_check_cached", age_s=round(now - _health_cache["ts"], 1))
+        return _health_cache["result"]
+
+    # Run probes in parallel
     fal_result, replicate_result, groq_result = await asyncio.gather(
         _probe_fal(),
         _probe_replicate(),
@@ -93,6 +112,12 @@ async def health_check():
     all_ok = all(s.reachable for s in services.values())
     status = "ok" if all_ok else "degraded"
 
+    result = HealthResponse(status=status, services=services)
+
+    # Store in cache
+    _health_cache["result"] = result
+    _health_cache["ts"] = now
+
     logger.info(
         "health_check",
         status=status,
@@ -101,4 +126,4 @@ async def health_check():
         groq_reachable=groq_result.reachable,
     )
 
-    return HealthResponse(status=status, services=services)
+    return result

@@ -3,14 +3,40 @@ groq_client.py — Groq Prompt Enhancement Client
 """
 import asyncio
 import json
-from typing import Literal
-from groq import AsyncGroq
+from typing import Any, Literal
+from groq import AsyncGroq, RateLimitError
 from backend.config import get_settings
 from backend.utils.logger import get_logger
 from backend.utils.retry import async_retry, RetryableError
 from backend.models.schemas import EnhancedPrompt, ImageAttributes, VideoAttributes
 
 logger = get_logger(__name__)
+
+_FALLBACK_MODEL = "llama-3.1-8b-instant"
+
+
+async def _chat_with_fallback(client: AsyncGroq, primary_model: str, timeout: float, **kwargs: Any) -> Any:
+    """
+    Try primary_model first. If Groq returns RateLimitError (quota exceeded),
+    automatically retry once with the fallback model.
+    All other exceptions propagate normally.
+    """
+    try:
+        return await asyncio.wait_for(
+            client.chat.completions.create(model=primary_model, **kwargs),
+            timeout=timeout,
+        )
+    except RateLimitError:
+        logger.warning(
+            "groq_model_fallback",
+            primary_model=primary_model,
+            fallback_model=_FALLBACK_MODEL,
+            reason="quota_exceeded",
+        )
+        return await asyncio.wait_for(
+            client.chat.completions.create(model=_FALLBACK_MODEL, **kwargs),
+            timeout=timeout,
+        )
 
 
 def _extract_json(text: str) -> dict:
@@ -57,17 +83,16 @@ async def enhance_prompt(raw: str, mode: Literal["image", "video"]) -> EnhancedP
         
         system_prompt = SYSTEM_PROMPTS.get(mode, SYSTEM_PROMPTS["image"])
         
-        completion = await asyncio.wait_for(
-            client.chat.completions.create(
-                model=settings.groq_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": raw}
-                ],
-                temperature=0.7,
-                max_tokens=300,
-            ),
-            timeout=settings.groq_timeout
+        completion = await _chat_with_fallback(
+            client,
+            primary_model=settings.groq_model,
+            timeout=settings.groq_timeout,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": raw},
+            ],
+            temperature=0.7,
+            max_tokens=300,
         )
         
         enhanced_text = completion.choices[0].message.content.strip()
@@ -125,17 +150,16 @@ async def analyse_image_attributes(description: str) -> ImageAttributes:
 
     client = AsyncGroq(api_key=settings.groq_api_key)
     try:
-        completion = await asyncio.wait_for(
-            client.chat.completions.create(
-                model=settings.groq_model,
-                messages=[
-                    {"role": "system", "content": ANALYSE_SYSTEM_PROMPT},
-                    {"role": "user", "content": description},
-                ],
-                temperature=0.75,
-                max_tokens=2000,
-            ),
+        completion = await _chat_with_fallback(
+            client,
+            primary_model=settings.groq_model,
             timeout=settings.groq_timeout,
+            messages=[
+                {"role": "system", "content": ANALYSE_SYSTEM_PROMPT},
+                {"role": "user", "content": description},
+            ],
+            temperature=0.75,
+            max_tokens=2000,
         )
 
         raw_json = completion.choices[0].message.content.strip()
@@ -187,17 +211,16 @@ async def synthesize_image_prompt(attributes: ImageAttributes) -> str:
     )
 
     try:
-        completion = await asyncio.wait_for(
-            client.chat.completions.create(
-                model=settings.groq_model,
-                messages=[
-                    {"role": "system", "content": SYNTHESIZE_SYSTEM_PROMPT},
-                    {"role": "user", "content": attribute_text},
-                ],
-                temperature=0.7,
-                max_tokens=200,
-            ),
+        completion = await _chat_with_fallback(
+            client,
+            primary_model=settings.groq_model,
             timeout=settings.groq_timeout,
+            messages=[
+                {"role": "system", "content": SYNTHESIZE_SYSTEM_PROMPT},
+                {"role": "user", "content": attribute_text},
+            ],
+            temperature=0.7,
+            max_tokens=200,
         )
         return completion.choices[0].message.content.strip()
 
@@ -265,17 +288,16 @@ async def analyse_video_attributes(description: str) -> VideoAttributes:
 
     client = AsyncGroq(api_key=settings.groq_api_key)
     try:
-        completion = await asyncio.wait_for(
-            client.chat.completions.create(
-                model=settings.groq_model,
-                messages=[
-                    {"role": "system", "content": VIDEO_ANALYSE_SYSTEM_PROMPT},
-                    {"role": "user", "content": description},
-                ],
-                temperature=0.75,
-                max_tokens=2000,
-            ),
+        completion = await _chat_with_fallback(
+            client,
+            primary_model=settings.groq_model,
             timeout=settings.groq_timeout,
+            messages=[
+                {"role": "system", "content": VIDEO_ANALYSE_SYSTEM_PROMPT},
+                {"role": "user", "content": description},
+            ],
+            temperature=0.75,
+            max_tokens=2000,
         )
 
         raw_json = completion.choices[0].message.content.strip()
@@ -337,17 +359,16 @@ async def synthesize_video_prompt(attributes: VideoAttributes) -> str:
     )
 
     try:
-        completion = await asyncio.wait_for(
-            client.chat.completions.create(
-                model=settings.groq_model,
-                messages=[
-                    {"role": "system", "content": VIDEO_SYNTHESIZE_SYSTEM_PROMPT},
-                    {"role": "user", "content": attribute_text},
-                ],
-                temperature=0.7,
-                max_tokens=250,
-            ),
+        completion = await _chat_with_fallback(
+            client,
+            primary_model=settings.groq_model,
             timeout=settings.groq_timeout,
+            messages=[
+                {"role": "system", "content": VIDEO_SYNTHESIZE_SYSTEM_PROMPT},
+                {"role": "user", "content": attribute_text},
+            ],
+            temperature=0.7,
+            max_tokens=250,
         )
         return completion.choices[0].message.content.strip()
 

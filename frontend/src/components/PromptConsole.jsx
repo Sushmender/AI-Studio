@@ -16,9 +16,10 @@
  *   onSubmitVideo({ video_attributes }) — called when Generate Video is clicked
  *   isGenerating                        — disables all actions while a job runs
  */
-import { useState, useId } from 'react';
+import { useState, useId, useRef } from 'react';
 import { useImageAnalysis } from '../hooks/useImageAnalysis';
 import { useVideoAnalysis } from '../hooks/useVideoAnalysis';
+import { usePromptHistory } from '../hooks/usePromptHistory';
 import { ImageAttributeEditor } from './ImageAttributeEditor';
 import { VideoAttributeEditor } from './VideoAttributeEditor';
 
@@ -37,7 +38,13 @@ export function PromptConsole({
   const [mode, setMode] = useState('image');
   const [prompt, setPrompt] = useState('');
   const [validationError, setValidationError] = useState('');
+  const [hasGeneratedImage, setHasGeneratedImage] = useState(false);
+  const [hasGeneratedVideo, setHasGeneratedVideo] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const promptId = useId();
+  const historyRef = useRef(null);
+
+  const { history, addToHistory } = usePromptHistory();
 
   const {
     analyse,
@@ -63,6 +70,20 @@ export function PromptConsole({
   const imageState = attributes ? 'ready' : analysing ? 'analysing' : 'idle';
   const videoState = videoAttributes ? 'ready' : analysingVideo ? 'analysing' : 'idle';
 
+  const currentState = mode === 'image' ? imageState : videoState;
+  const hasGeneratedCurrent = mode === 'image' ? hasGeneratedImage : hasGeneratedVideo;
+
+  function handleKeyDown(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      if (mode === 'image' && imageState !== 'ready' && !analysing && !isGenerating) {
+        handleAnalyseImage(e);
+      } else if (mode === 'video' && videoState !== 'ready' && !analysingVideo && !isGenerating) {
+        handleAnalyseVideo(e);
+      }
+    }
+  }
+
   const charsLeft = MAX_CHARS - prompt.length;
 
   // ── Image: Analyse Description ────────────────────────────────────────────
@@ -74,19 +95,28 @@ export function PromptConsole({
       return;
     }
     setValidationError('');
+    setHasGeneratedImage(false);
+    addToHistory(trimmed, 'image');
     await analyse(trimmed);
   }
 
   // ── Image: Generate from attributes ──────────────────────────────────────
   function handleGenerateImage() {
+    setHasGeneratedImage(true);
     onSubmitImage({ attributes });
   }
 
   // ── Image: Re-analyse ─────────────────────────────────────────────────────
   function handleReanalyseImage() {
+    setHasGeneratedImage(false);
     reset();
     // Restore the textarea to what was there before (rawDescription)
     setPrompt(rawDescription || prompt);
+  }
+  
+  function handleUpdateImageAttribute(key, val) {
+    setHasGeneratedImage(false);
+    updateAttribute(key, val);
   }
 
   // ── Video: Analyse Description ────────────────────────────────────────────
@@ -98,18 +128,27 @@ export function PromptConsole({
       return;
     }
     setValidationError('');
+    setHasGeneratedVideo(false);
+    addToHistory(trimmed, 'video');
     await analyseVideo(trimmed);
   }
 
   // ── Video: Generate from attributes ──────────────────────────────────────
   function handleGenerateVideo() {
+    setHasGeneratedVideo(true);
     onSubmitVideo({ video_attributes: videoAttributes });
   }
 
   // ── Video: Re-analyse ─────────────────────────────────────────────────────
   function handleReanalyseVideo() {
+    setHasGeneratedVideo(false);
     resetVideo();
     setPrompt(rawVideoDescription || prompt);
+  }
+
+  function handleUpdateVideoAttribute(key, val) {
+    setHasGeneratedVideo(false);
+    updateVideoAttribute(key, val);
   }
 
   function handlePromptChange(e) {
@@ -122,16 +161,25 @@ export function PromptConsole({
   function handleModeSwitch(newMode) {
     setMode(newMode);
     setValidationError('');
-    reset(); // clear any pending image analysis
-    resetVideo(); // clear any pending video analysis
   }
 
   function handleStartOver() {
+    setHasGeneratedImage(false);
+    setHasGeneratedVideo(false);
     reset();
     resetVideo();
     setPrompt('');
     setValidationError('');
+    setHistoryOpen(false);
   }
+
+  function handlePickHistory(p) {
+    setPrompt(p);
+    setHistoryOpen(false);
+    setValidationError('');
+  }
+
+  const currentHistory = history[mode] ?? [];
 
   return (
     <section className="prompt-console" aria-label="Prompt Console">
@@ -145,32 +193,39 @@ export function PromptConsole({
               style={{ padding: '2px 8px', fontSize: '10px', height: '20px', minHeight: '20px' }}
               onClick={handleStartOver}
               disabled={isGenerating || analysing || analysingVideo}
-              aria-label="Start fresh"
+              aria-label="Start over"
             >
-              ✕ Clear
+              ✕ Start over
             </button>
           )}
         </div>
 
-        {/* Mode toggle — hidden once attributes are shown */}
-        {imageState !== 'ready' && videoState !== 'ready' && (
-          <div className="mode-toggle" role="group" aria-label="Generation mode">
-            {MODE_OPTIONS.map(({ value, label }) => (
-              <button
-                key={value}
-                type="button"
-                id={`mode-toggle-${value}`}
-                className={`mode-toggle__btn${mode === value ? ' mode-toggle__btn--active' : ''}`}
-                onClick={() => handleModeSwitch(value)}
-                disabled={isGenerating || analysing || analysingVideo}
-                aria-pressed={mode === value}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Mode toggle */}
+        <div className="mode-toggle" role="group" aria-label="Generation mode">
+          {MODE_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              id={`mode-toggle-${value}`}
+              className={`mode-toggle__btn${mode === value ? ' mode-toggle__btn--active' : ''}`}
+              onClick={() => handleModeSwitch(value)}
+              disabled={isGenerating || analysing || analysingVideo}
+              aria-pressed={mode === value}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </header>
+
+      {/* Pipeline Stepper */}
+      <div className="pipeline-stepper" aria-label="Progress">
+        <div className={`stepper-step ${currentState === 'idle' || currentState === 'analysing' ? 'stepper-step--active' : 'stepper-step--completed'}`}>1. Analyse</div>
+        <span className="stepper-divider" />
+        <div className={`stepper-step ${currentState === 'ready' && !isGenerating && !hasGeneratedCurrent ? 'stepper-step--active' : (currentState === 'ready' ? 'stepper-step--completed' : '')}`}>2. Edit</div>
+        <span className="stepper-divider" />
+        <div className={`stepper-step ${isGenerating || hasGeneratedCurrent ? 'stepper-step--active' : ''}`}>3. Generate</div>
+      </div>
 
       {/* ── IMAGE MODE ─────────────────────────────────────────────────── */}
       {mode === 'image' && (
@@ -182,16 +237,49 @@ export function PromptConsole({
                 <label htmlFor={promptId} className="sr-only">
                   Describe the image you want to generate
                 </label>
-                <textarea
-                  id={promptId}
-                  className={`prompt-textarea${validationError ? ' prompt-textarea--error' : ''}`}
-                  value={prompt}
-                  onChange={handlePromptChange}
-                  placeholder="Describe the image you want to generate… Be as brief or detailed as you like. The AI will fill in the missing pieces."
-                  rows={5}
-                  disabled={analysing || isGenerating}
-                  aria-describedby={validationError ? 'prompt-error' : 'prompt-hint'}
-                />
+                <div className="prompt-field-wrap">
+                  <textarea
+                    id={promptId}
+                    className={`prompt-textarea${validationError ? ' prompt-textarea--error' : ''}`}
+                    value={prompt}
+                    onChange={handlePromptChange}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Describe the image you want to generate\u2026 Be as brief or detailed as you like. The AI will fill in the missing pieces."
+                    rows={5}
+                    disabled={analysing || isGenerating}
+                    aria-describedby={validationError ? 'prompt-error' : 'prompt-hint'}
+                  />
+                  {currentHistory.length > 0 && (
+                    <div className="prompt-history" ref={historyRef}>
+                      <button
+                        type="button"
+                        className="prompt-history__toggle"
+                        onClick={() => setHistoryOpen((o) => !o)}
+                        aria-expanded={historyOpen}
+                        aria-label="Show prompt history"
+                        title="Recent prompts"
+                        disabled={analysing || isGenerating}
+                      >
+                        ▾
+                      </button>
+                      {historyOpen && (
+                        <ul className="prompt-history__dropdown" role="listbox" aria-label="Recent prompts">
+                          {currentHistory.map((p, i) => (
+                            <li key={i} role="option">
+                              <button
+                                type="button"
+                                className="prompt-history__item"
+                                onClick={() => handlePickHistory(p)}
+                              >
+                                {p.slice(0, 80)}{p.length > 80 ? '\u2026' : ''}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div className="prompt-console__meta">
                   {validationError ? (
                     <span id="prompt-error" className="prompt-console__error" role="alert">
@@ -225,7 +313,7 @@ export function PromptConsole({
                     Analysing description…
                   </>
                 ) : (
-                  '🔍 Analyse Description'
+                  '🔍 Analyse description'
                 )}
               </button>
 
@@ -243,7 +331,7 @@ export function PromptConsole({
             <ImageAttributeEditor
               attributes={attributes}
               rawDescription={rawDescription}
-              onUpdate={updateAttribute}
+              onUpdate={handleUpdateImageAttribute}
               onGenerate={handleGenerateImage}
               onReanalyse={handleReanalyseImage}
               isGenerating={isGenerating}
@@ -261,16 +349,49 @@ export function PromptConsole({
                 <label htmlFor={promptId} className="sr-only">
                   Describe the video scene you want to generate
                 </label>
-                <textarea
-                  id={promptId}
-                  className={`prompt-textarea${validationError ? ' prompt-textarea--error' : ''}`}
-                  value={prompt}
-                  onChange={handlePromptChange}
-                  placeholder="Describe the video scene you want to generate… The AI will extract Overall, Camera, and Audio elements."
-                  rows={5}
-                  disabled={analysingVideo || isGenerating}
-                  aria-describedby={validationError ? 'prompt-error' : 'prompt-hint'}
-                />
+                <div className="prompt-field-wrap">
+                  <textarea
+                    id={promptId}
+                    className={`prompt-textarea${validationError ? ' prompt-textarea--error' : ''}`}
+                    value={prompt}
+                    onChange={handlePromptChange}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Describe the video scene you want to generate\u2026 The AI will extract Overall, Camera, and Audio elements."
+                    rows={5}
+                    disabled={analysingVideo || isGenerating}
+                    aria-describedby={validationError ? 'prompt-error' : 'prompt-hint'}
+                  />
+                  {currentHistory.length > 0 && (
+                    <div className="prompt-history" ref={historyRef}>
+                      <button
+                        type="button"
+                        className="prompt-history__toggle"
+                        onClick={() => setHistoryOpen((o) => !o)}
+                        aria-expanded={historyOpen}
+                        aria-label="Show prompt history"
+                        title="Recent prompts"
+                        disabled={analysingVideo || isGenerating}
+                      >
+                        ▾
+                      </button>
+                      {historyOpen && (
+                        <ul className="prompt-history__dropdown" role="listbox" aria-label="Recent prompts">
+                          {currentHistory.map((p, i) => (
+                            <li key={i} role="option">
+                              <button
+                                type="button"
+                                className="prompt-history__item"
+                                onClick={() => handlePickHistory(p)}
+                              >
+                                {p.slice(0, 80)}{p.length > 80 ? '\u2026' : ''}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div className="prompt-console__meta">
                   {validationError ? (
                     <span id="prompt-error" className="prompt-console__error" role="alert">
@@ -304,7 +425,7 @@ export function PromptConsole({
                     Analysing description…
                   </>
                 ) : (
-                  '🔍 Analyse Description'
+                  '🔍 Analyse description'
                 )}
               </button>
 
@@ -322,7 +443,7 @@ export function PromptConsole({
             <VideoAttributeEditor
               attributes={videoAttributes}
               rawDescription={rawVideoDescription}
-              onUpdate={updateVideoAttribute}
+              onUpdate={handleUpdateVideoAttribute}
               onGenerate={handleGenerateVideo}
               onReanalyse={handleReanalyseVideo}
               isGenerating={isGenerating}

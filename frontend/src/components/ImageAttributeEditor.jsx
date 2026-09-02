@@ -189,9 +189,21 @@ export function ImageAttributeEditor({
   onReanalyse,
   isGenerating,
 }) {
+  const [copied, setCopied] = useState(false);
+
   const handleGenerate = useCallback(() => {
     if (!isGenerating) onGenerate();
   }, [isGenerating, onGenerate]);
+
+  function handleCopy() {
+    const text = ATTRIBUTE_META
+      .map((m) => `${m.label.toUpperCase()}: ${attributes[m.key] ?? ''}`)
+      .join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
 
   return (
     <div className="attr-editor" aria-label="Image Attributes Editor">
@@ -223,6 +235,17 @@ export function ImageAttributeEditor({
         </button>
 
         <button
+          id="copy-image-attrs-btn"
+          type="button"
+          className={`btn btn--secondary btn--small attr-editor__copy-btn${copied ? ' attr-editor__copy-btn--copied' : ''}`}
+          onClick={handleCopy}
+          aria-label="Copy attributes to clipboard"
+          title="Copy attributes to clipboard"
+        >
+          {copied ? '✓ Copied!' : '📋 Copy'}
+        </button>
+
+        <button
           id="generate-image-btn"
           type="button"
           className="btn btn--primary btn--large attr-editor__generate-btn"
@@ -230,7 +253,11 @@ export function ImageAttributeEditor({
           disabled={isGenerating}
           aria-busy={isGenerating}
         >
-          {isGenerating ? '⏳ Generating…' : '✦ Generate Image'}
+          {isGenerating ? '⏳ Generating…' : (
+            <>
+              ✦ Generate image <span className="attr-editor__estimate" style={{ opacity: 0.7, fontSize: '0.85em', marginLeft: '6px' }}>~5s</span>
+            </>
+          )}
         </button>
       </div>
     </div>

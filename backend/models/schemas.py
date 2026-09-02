@@ -157,6 +157,7 @@ class JobResultResponse(BaseModel):
     enhanced_prompt: Optional[str] = None
     result_url: Optional[str] = None
     latency_ms: Optional[float] = None
+    retry_count: int = 0
     error: Optional[str] = None
     error_type: Optional[str] = None
     cdn_expiry_note: str = "CDN links expire in approximately 24 hours."

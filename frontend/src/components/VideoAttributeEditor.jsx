@@ -209,9 +209,22 @@ export function VideoAttributeEditor({
   onReanalyse,
   isGenerating,
 }) {
+  const [copied, setCopied] = useState(false);
+
   const handleGenerate = useCallback(() => {
     if (!isGenerating) onGenerate();
   }, [isGenerating, onGenerate]);
+
+  function handleCopy() {
+    const lines = ATTRIBUTE_GROUPS.flatMap((g) => [
+      `--- ${g.label.toUpperCase()} ---`,
+      ...g.fields.map((f) => `${f.label.toUpperCase()}: ${attributes[f.key] ?? ''}`),
+    ]);
+    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
 
   return (
     <div className="attr-editor" aria-label="Video Attributes Editor">
@@ -256,6 +269,17 @@ export function VideoAttributeEditor({
         </button>
 
         <button
+          id="copy-video-attrs-btn"
+          type="button"
+          className={`btn btn--secondary btn--small attr-editor__copy-btn${copied ? ' attr-editor__copy-btn--copied' : ''}`}
+          onClick={handleCopy}
+          aria-label="Copy attributes to clipboard"
+          title="Copy attributes to clipboard"
+        >
+          {copied ? '✓ Copied!' : '📋 Copy'}
+        </button>
+
+        <button
           id="generate-video-structured-btn"
           type="button"
           className="btn btn--primary btn--large attr-editor__generate-btn"
@@ -263,7 +287,11 @@ export function VideoAttributeEditor({
           disabled={isGenerating}
           aria-busy={isGenerating}
         >
-          {isGenerating ? '⏳ Generating…' : '🎬 Generate Video'}
+          {isGenerating ? '⏳ Generating…' : (
+            <>
+              🎬 Generate video <span className="attr-editor__estimate" style={{ opacity: 0.7, fontSize: '0.85em', marginLeft: '6px' }}>~2-5 min</span>
+            </>
+          )}
         </button>
       </div>
     </div>

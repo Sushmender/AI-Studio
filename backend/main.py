@@ -1,6 +1,7 @@
 """
 main.py — FastAPI application entry point for AI-Studio.
 """
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -10,12 +11,25 @@ from fastapi.responses import JSONResponse
 from backend.config import get_settings
 from backend.utils.logger import configure_logging, get_logger
 from backend.routes import generate, jobs, health, analyse
+from backend.services.job_store import job_store
 
 # ── Boot ─────────────────────────────────────────────────────────────────────
 
 configure_logging()
 logger = get_logger("ai_studio.main")
 settings = get_settings()
+
+
+async def _ttl_cleanup_loop() -> None:
+    """Background task: purge jobs older than 24h every hour."""
+    while True:
+        await asyncio.sleep(3600)  # wait first, then purge
+        try:
+            purged = await job_store.purge_expired(ttl_hours=24)
+            if purged:
+                logger.info("ttl_cleanup_complete", purged=purged)
+        except Exception as exc:
+            logger.error("ttl_cleanup_error", error=str(exc))
 
 
 @asynccontextmanager
@@ -31,7 +45,15 @@ async def lifespan(app: FastAPI):
         replicate_key_set=bool(settings.replicate_api_token),
         groq_key_set=bool(settings.groq_api_key),
     )
-    yield
+    cleanup_task = asyncio.create_task(_ttl_cleanup_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
     logger.info("shutdown", app="AI-Studio")
 
 

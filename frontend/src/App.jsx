@@ -17,15 +17,17 @@
  *   5. On failed → ErrorState shown
  *   6. Gallery persists across refreshes via useGallery (localStorage)
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { generateImage, generateVideo } from './api/client';
 import { useJobPolling } from './hooks/useJobPolling';
 import { useGallery } from './hooks/useGallery';
+import { useToast } from './hooks/useToast';
 import { PromptConsole } from './components/PromptConsole';
 import { JobStatusStrip } from './components/JobStatusStrip';
 import { GeneratingState } from './components/GeneratingState';
 import { ErrorState } from './components/ErrorState';
 import { ResultGallery } from './components/ResultGallery';
+import { ToastContainer } from './components/Toast';
 
 const MAX_RECENT_JOBS = 20;
 
@@ -37,6 +39,9 @@ export default function App() {
   const [lastSubmit, setLastSubmit] = useState(null);     // { prompt, mode } for retry
 
   const gallery = useGallery();
+  const { toasts, showToast, dismissToast } = useToast();
+  // Track last toasted job to avoid duplicate toasts on re-renders
+  const lastToastedJobId = useRef(null);
 
   // Poll the active job
   const { status, result, error: pollError, elapsedMs, estimatedWait } = useJobPolling(
@@ -62,7 +67,7 @@ export default function App() {
     );
   }, [activeJobId, status, elapsedMs, estimatedWait, pollError]);
 
-  // When a job completes, add to gallery
+  // When a job completes, add to gallery + show success toast
   useEffect(() => {
     if (status === 'done' && result?.result_url && activeJobId) {
       const activeJob = jobs.find((j) => j.job_id === activeJobId);
@@ -72,6 +77,15 @@ export default function App() {
         raw_prompt: activeJob?.raw_prompt,
         enhanced_prompt: activeJob?.enhanced_prompt,
       });
+      if (lastToastedJobId.current !== activeJobId) {
+        lastToastedJobId.current = activeJobId;
+        const label = activeJob?.mode === 'video' ? '🎬 Video' : '🖼 Image';
+        showToast(`${label} generated successfully!`, 'success');
+      }
+    }
+    if (status === 'failed' && activeJobId && lastToastedJobId.current !== activeJobId) {
+      lastToastedJobId.current = activeJobId;
+      showToast('Generation failed — please retry', 'error', 6000);
     }
   }, [status, result, activeJobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -177,7 +191,7 @@ export default function App() {
   const isGenerating = status === 'queued' || status === 'generating';
   const isFailed = status === 'failed';
 
-  const displayError = submitError || (isFailed ? (pollError ?? { errorType: 'generic_failed', message: 'Generation failed — please try again', provider: '' }) : null);
+  const displayError = submitError || (isFailed ? (pollError ?? { errorType: 'generic_failed', message: 'That generation didn\'t go through. Retry', provider: '' }) : null);
 
   return (
     <div className="app">
@@ -249,11 +263,13 @@ export default function App() {
             <ResultGallery
               items={gallery.items}
               loading={gallery.loading}
+              activeJob={isGenerating ? activeJob : null}
             />
           </div>
 
         </div>
       </main>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

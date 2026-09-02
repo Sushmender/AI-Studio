@@ -1,10 +1,11 @@
 """
 jobs.py — Job polling endpoints.
 
+GET /jobs            → paginated list of all jobs (newest first)
 GET /jobs/{id}/status  → current job status + metadata
 GET /jobs/{id}/result  → full result when done, error detail when failed
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from backend.models.schemas import (
     JobResultResponse,
@@ -16,6 +17,47 @@ from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+@router.get("", response_model=dict)
+async def list_jobs(
+    limit: int = Query(default=20, ge=1, le=100, description="Max jobs to return"),
+    offset: int = Query(default=0, ge=0, description="Number of jobs to skip"),
+):
+    """
+    List recent jobs, newest first. Useful for debugging and API introspection.
+
+    Returns: { jobs: [...], total: N, limit: N, offset: N }
+    """
+    all_jobs = await job_store.list_jobs()
+    # Sort newest first
+    sorted_jobs = sorted(all_jobs, key=lambda j: j.created_at, reverse=True)
+    total = len(sorted_jobs)
+    page = sorted_jobs[offset : offset + limit]
+
+    return {
+        "jobs": [
+            JobStatusResponse(
+                job_id=j.job_id,
+                status=j.status,
+                mode=j.mode,
+                raw_prompt=j.raw_prompt,
+                enhanced_prompt=j.enhanced_prompt,
+                provider=j.provider,
+                model=j.model,
+                retry_count=j.retry_count,
+                created_at=j.created_at,
+                updated_at=j.updated_at,
+                estimated_wait_seconds=j.estimated_wait_seconds,
+                error=j.error,
+                error_type=j.error_type,
+            )
+            for j in page
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/{job_id}/status", response_model=JobStatusResponse)
@@ -67,6 +109,7 @@ async def get_job_result(job_id: str):
         enhanced_prompt=record.enhanced_prompt,
         result_url=record.result_url,
         latency_ms=record.latency_ms,
+        retry_count=record.retry_count,
         error=record.error,
         error_type=record.error_type,
     )
