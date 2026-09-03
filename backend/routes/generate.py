@@ -183,13 +183,28 @@ async def _run_video_job(job_id: str, request: GenerateRequest) -> None:
         )
 
 
-@router.post("/image", response_model=JobResponse, status_code=202)
+@router.post(
+    "/image",
+    response_model=JobResponse,
+    status_code=202,
+    summary="Submit an image generation job",
+    response_description="Job queued — use job_id to poll status",
+)
 async def generate_image(request: GenerateRequest, req: Request):
-    """Submit an image generation job. Returns job_id for polling.
-    
-    Two modes:
-    - Structured (attributes present): Groq Call 2 synthesises prompt from 5 attributes
-    - Legacy (prompt only): Groq enhances raw prompt as before
+    """
+    Submit an asynchronous image generation job using **fal.ai / FLUX Dev**.
+
+    **Two prompt modes:**
+    - **Structured** (`attributes` field present): Groq Call 2 synthesises an
+      optimised fal.ai prompt from the 5 user-confirmed image attributes.
+    - **Legacy** (`prompt` only): Groq enhances the raw prompt before generation.
+
+    Returns a `job_id` immediately (HTTP 202). Poll `GET /jobs/{id}/status`
+    every 2 seconds until `status` is `done` or `failed`, then fetch the
+    result from `GET /jobs/{id}/result`.
+
+    **Rate limit:** 10 requests per IP per 60-second sliding window.
+    Exceeding the limit returns HTTP 429 with a `Retry-After` header.
     """
     # Rate Limit
     client_ip = req.client.host if req.client else "127.0.0.1"
@@ -229,9 +244,29 @@ async def generate_image(request: GenerateRequest, req: Request):
     )
 
 
-@router.post("/video", response_model=JobResponse, status_code=202)
+@router.post(
+    "/video",
+    response_model=JobResponse,
+    status_code=202,
+    summary="Submit a video generation job",
+    response_description="Job queued — use job_id to poll status",
+)
 async def generate_video(request: GenerateRequest, req: Request):
-    """Submit a video generation job. Returns job_id for polling."""
+    """
+    Submit an asynchronous video generation job using **Replicate / Luma Ray Flash 2 720p**.
+
+    **Two prompt modes:**
+    - **Structured** (`video_attributes` field present): Groq synthesises a
+      cinematic prompt from all 10 video attributes (subject, action, scene,
+      style, camera angles/movements/lens, temporal elements, dialogue, sound effects).
+    - **Legacy** (`prompt` only): Groq enhances the raw prompt for Replicate.
+
+    Video generation typically takes **2–5 minutes**. The response includes
+    `estimated_wait_seconds` to drive a progress indicator in the UI.
+    Poll `GET /jobs/{id}/status` every 5 seconds.
+
+    **Rate limit:** 10 requests per IP per 60-second sliding window.
+    """
     # Rate Limit
     client_ip = req.client.host if req.client else "127.0.0.1"
     try:

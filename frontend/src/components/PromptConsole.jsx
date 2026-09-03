@@ -184,7 +184,7 @@ export function PromptConsole({
   return (
     <section className="prompt-console" aria-label="Prompt Console">
       <header className="prompt-console__header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
           <h2 className="prompt-console__title">Prompt Console</h2>
           {(prompt.length > 0 || imageState === 'ready' || videoState === 'ready') && (
             <button 
@@ -201,7 +201,7 @@ export function PromptConsole({
         </div>
 
         {/* Mode toggle */}
-        <div className="mode-toggle" role="group" aria-label="Generation mode">
+        <div className="mode-toggle" style={{ margin: '0 auto' }} role="group" aria-label="Generation mode">
           {MODE_OPTIONS.map(({ value, label }) => (
             <button
               key={value}

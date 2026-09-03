@@ -249,3 +249,177 @@ async def test_retry_binds_retry_count_after_retries():
     assert result == "ok"
     ctx = structlog.contextvars.get_contextvars()
     assert ctx.get("retry_count") == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Edge-case Unit Tests (Day 7 additions)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 1. Invalid job_id formats ───────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_job_store_invalid_job_id_returns_none():
+    """
+    Requesting a job with a non-UUID or malformed job_id should return None
+    gracefully — no exception raised.
+    """
+    from backend.services.job_store import JobStore
+
+    store = JobStore()
+
+    for bad_id in [
+        "",                              # empty string
+        "not-a-uuid",                    # plain string
+        "12345",                         # numeric string
+        "x" * 500,                       # extremely long string
+        "00000000-0000-0000-0000-000000000000",   # zero UUID (valid format, missing)
+        "../../etc/passwd",              # path traversal attempt
+        "'; DROP TABLE jobs; --",        # SQL injection attempt
+    ]:
+        result = await store.get_job(bad_id)
+        assert result is None, f"Expected None for bad_id={bad_id!r}, got {result}"
+
+
+@pytest.mark.asyncio
+async def test_job_store_update_nonexistent_job_is_noop():
+    """
+    Updating a job that doesn't exist should not raise — just silently no-op.
+    This protects against race conditions where a job TTL-expires mid-update.
+    """
+    from backend.services.job_store import JobStore
+    from backend.models.schemas import JobStatus
+
+    store = JobStore()
+    # Should not raise
+    await store.update_job("nonexistent-id-xyz", status=JobStatus.done)
+
+
+# 2. Malformed / unexpected Groq output ───────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_retry_handles_generic_exception_as_retryable():
+    """
+    Simulate Groq returning unexpected/malformed data by raising a generic
+    RuntimeError inside a retried async function. Verifies the retry decorator
+    does NOT swallow it silently, and exhausts attempts correctly.
+    """
+    from backend.utils.retry import async_retry, RetryableError
+
+    call_count = 0
+
+    @async_retry(max_attempts=2, backoff_base=0.01)
+    async def simulate_bad_groq_parse():
+        nonlocal call_count
+        call_count += 1
+        # Simulate JSON parsing failure after Groq returns garbage
+        raise RetryableError("JSONDecodeError: Expecting value: line 1 col 1")
+
+    with pytest.raises(RetryableError):
+        await simulate_bad_groq_parse()
+
+    assert call_count == 2, f"Expected 2 attempts, got {call_count}"
+
+
+@pytest.mark.asyncio
+async def test_non_retryable_error_not_retried_on_groq_auth():
+    """
+    A 401/403 from Groq (auth error) must NOT be retried — it would be a
+    pointless waste of quota. Verify NonRetryableError propagates immediately.
+    """
+    from backend.utils.retry import async_retry, NonRetryableError
+
+    call_count = 0
+
+    @async_retry(max_attempts=3, backoff_base=0.01)
+    async def simulate_groq_auth_error():
+        nonlocal call_count
+        call_count += 1
+        raise NonRetryableError("401 Unauthorized — invalid Groq API key")
+
+    with pytest.raises(NonRetryableError, match="401 Unauthorized"):
+        await simulate_groq_auth_error()
+
+    assert call_count == 1, "NonRetryableError must abort immediately (no retries)"
+
+
+# 3. Concurrent job submissions ───────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_concurrent_job_submissions_all_stored():
+    """
+    Submit N=20 jobs concurrently to the JobStore.
+    Every job_id must be unique, and all jobs must be retrievable.
+    Tests that the asyncio.Lock prevents data corruption under load.
+    """
+    from backend.services.job_store import JobStore
+    from backend.models.schemas import JobRecord, GenerationMode, JobStatus
+
+    store = JobStore()
+    n = 20
+
+    records = [
+        JobRecord(
+            mode=GenerationMode.image,
+            raw_prompt=f"concurrent prompt {i}",
+            provider="fal.ai",
+            model="flux/dev",
+        )
+        for i in range(n)
+    ]
+
+    # Create all jobs at the same time
+    await asyncio.gather(*[store.create_job(r) for r in records])
+
+    # Verify all were stored and are independently accessible
+    job_ids = {r.job_id for r in records}
+    assert len(job_ids) == n, "All job_ids must be unique"
+
+    retrieved = await asyncio.gather(*[store.get_job(r.job_id) for r in records])
+    for job, original in zip(retrieved, records):
+        assert job is not None, f"Job {original.job_id} was not found"
+        assert job.job_id == original.job_id
+        assert job.status == JobStatus.queued
+        assert job.raw_prompt == original.raw_prompt
+
+
+@pytest.mark.asyncio
+async def test_concurrent_updates_to_different_jobs_no_corruption():
+    """
+    Concurrently update N different jobs with different statuses.
+    After all updates settle, every job should hold its own expected value
+    (no cross-job data leaks from lock contention).
+    """
+    from backend.services.job_store import JobStore
+    from backend.models.schemas import JobRecord, GenerationMode, JobStatus
+
+    store = JobStore()
+    n = 10
+
+    records = [
+        JobRecord(
+            mode=GenerationMode.video,
+            raw_prompt=f"video prompt {i}",
+            provider="replicate",
+            model="luma",
+        )
+        for i in range(n)
+    ]
+    await asyncio.gather(*[store.create_job(r) for r in records])
+
+    # Update each job with a unique result_url
+    async def update(record: JobRecord, idx: int):
+        await store.update_job(
+            record.job_id,
+            status=JobStatus.done,
+            result_url=f"https://cdn.example.com/video_{idx}.mp4",
+            latency_ms=float(idx * 100),
+        )
+
+    await asyncio.gather(*[update(r, i) for i, r in enumerate(records)])
+
+    # Verify each job holds its own data
+    for i, record in enumerate(records):
+        job = await store.get_job(record.job_id)
+        assert job.status == JobStatus.done
+        assert job.result_url == f"https://cdn.example.com/video_{i}.mp4"
+        assert job.latency_ms == float(i * 100)

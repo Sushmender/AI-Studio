@@ -44,3 +44,5 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+test.py

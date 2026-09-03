@@ -82,11 +82,24 @@ async def _probe_groq() -> ServiceHealth:
         return ServiceHealth(reachable=False, latency_ms=round(latency, 1), error=str(exc))
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    summary="Service health check",
+    response_description="Per-provider reachability status and latency",
+)
 async def health_check():
     """
-    Probe all three providers in parallel and report reachability.
-    Results are cached for 30 s — safe to call frequently.
+    Probe all three AI providers in parallel and report reachability.
+
+    - **fal.ai** — HEAD `https://fal.ai` with API key
+    - **Replicate** — GET model metadata for `luma/ray-flash-2-720p`
+    - **Groq** — GET `/v1/models` with API key
+
+    Results are **cached for 30 seconds** — safe to call frequently from the
+    frontend HUD without hammering provider endpoints.
+
+    `status` is `"ok"` if all services are reachable, `"degraded"` otherwise.
     """
     now = time.monotonic()
 

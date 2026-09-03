@@ -224,26 +224,30 @@ export function ImageAttributeEditor({
 
       {/* Action bar */}
       <div className="attr-editor__actions">
-        <button
-          id="reanalyse-btn"
-          type="button"
-          className="btn btn--secondary"
-          onClick={onReanalyse}
-          disabled={isGenerating}
-        >
-          ↩ Re-analyse
-        </button>
+        <div style={{ display: 'flex', gap: 'var(--space-3)', width: '100%' }}>
+          <button
+            id="reanalyse-btn"
+            type="button"
+            className="btn btn--secondary"
+            style={{ flex: 1 }}
+            onClick={onReanalyse}
+            disabled={isGenerating}
+          >
+            ↩ Re-analyse
+          </button>
 
-        <button
-          id="copy-image-attrs-btn"
-          type="button"
-          className={`btn btn--secondary btn--small attr-editor__copy-btn${copied ? ' attr-editor__copy-btn--copied' : ''}`}
-          onClick={handleCopy}
-          aria-label="Copy attributes to clipboard"
-          title="Copy attributes to clipboard"
-        >
-          {copied ? '✓ Copied!' : '📋 Copy'}
-        </button>
+          <button
+            id="copy-image-attrs-btn"
+            type="button"
+            className={`btn btn--secondary attr-editor__copy-btn${copied ? ' attr-editor__copy-btn--copied' : ''}`}
+            style={{ flex: 1 }}
+            onClick={handleCopy}
+            aria-label="Copy attributes to clipboard"
+            title="Copy attributes to clipboard"
+          >
+            {copied ? '✓ Copied!' : '📋 Copy'}
+          </button>
+        </div>
 
         <button
           id="generate-image-btn"

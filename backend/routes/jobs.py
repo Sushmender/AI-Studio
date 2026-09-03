@@ -19,15 +19,23 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
-@router.get("", response_model=dict)
+@router.get(
+    "",
+    response_model=dict,
+    summary="List recent jobs",
+    response_description="Paginated list of job records, newest first",
+)
 async def list_jobs(
-    limit: int = Query(default=20, ge=1, le=100, description="Max jobs to return"),
-    offset: int = Query(default=0, ge=0, description="Number of jobs to skip"),
+    limit: int = Query(default=20, ge=1, le=100, description="Max jobs to return (1–100)"),
+    offset: int = Query(default=0, ge=0, description="Number of jobs to skip for pagination"),
 ):
     """
-    List recent jobs, newest first. Useful for debugging and API introspection.
+    Return all in-memory jobs sorted newest-first, with pagination.
 
-    Returns: { jobs: [...], total: N, limit: N, offset: N }
+    Useful for debugging, admin inspection, and the frontend gallery refresh.
+    Jobs are purged automatically after **24 hours** by the background TTL task.
+
+    **Response shape:** `{ jobs: [...], total: N, limit: N, offset: N }`
     """
     all_jobs = await job_store.list_jobs()
     # Sort newest first
@@ -60,9 +68,25 @@ async def list_jobs(
     }
 
 
-@router.get("/{job_id}/status", response_model=JobStatusResponse)
+@router.get(
+    "/{job_id}/status",
+    response_model=JobStatusResponse,
+    summary="Poll job status",
+    response_description="Current status, provider metadata, and optional error details",
+)
 async def get_job_status(job_id: str):
-    """Poll job status. Safe to call repeatedly until status is done or failed."""
+    """
+    Return the current status of a job by its UUID.
+
+    **Safe to call in a polling loop** — the endpoint reads from an in-memory
+    dict and returns immediately.
+
+    **Recommended polling intervals:**
+    - Image jobs: every **2 seconds**
+    - Video jobs: every **5 seconds** (typical generation time 2–5 min)
+
+    **Returns 404** if the job has been purged (TTL 24 h) or never existed.
+    """
     record = await job_store.get_job(job_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
@@ -84,9 +108,23 @@ async def get_job_status(job_id: str):
     )
 
 
-@router.get("/{job_id}/result", response_model=JobResultResponse)
+@router.get(
+    "/{job_id}/result",
+    response_model=JobResultResponse,
+    summary="Fetch job result",
+    response_description="Full result including CDN URL when status is done; error detail when failed",
+)
 async def get_job_result(job_id: str):
-    """Get the final result. Returns 202 if still in progress, 200 if done/failed."""
+    """
+    Retrieve the final result of a completed job.
+
+    - **HTTP 200** with `result_url` when `status == done`
+    - **HTTP 200** with `error` / `error_type` when `status == failed`
+    - **HTTP 202** (still in progress) while `status` is `queued` or `generating`
+    - **HTTP 404** if the job does not exist or has expired (TTL 24 h)
+
+    CDN links in `result_url` expire in approximately **24 hours**.
+    """
     record = await job_store.get_job(job_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")

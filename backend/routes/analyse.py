@@ -16,12 +16,30 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/analyse", tags=["analysis"])
 
 
-@router.post("/image", response_model=AnalyseResponse)
+@router.post(
+    "/image",
+    response_model=AnalyseResponse,
+    summary="Analyse image description → extract 5 attributes",
+    response_description="5 structured visual attributes ready for user editing",
+)
 async def analyse_image(body: AnalyseRequest, req: Request):
     """
-    Groq Call 1: Analyse a raw description and extract 5 visual attributes.
-    Synchronous — returns immediately with the structured attributes.
-    Does NOT create a generation job.
+    **Groq Call 1 (Image):** Parse a raw user description and extract the
+    5 fundamental visual attributes used by fal.ai / FLUX Dev:
+
+    | Attribute | Description |
+    |-----------|-------------|
+    | `subject` | Who or what is the main focus |
+    | `action` | Pose, motion, or state |
+    | `location` | Setting, environment, time of day |
+    | `composition` | Camera angle, framing, depth of field, lighting |
+    | `style` | Aesthetic, art movement, colour palette, mood |
+
+    **Synchronous** — returns immediately. Does **not** create a generation job.
+    The returned attributes are editable in the UI before the user confirms
+    and triggers `POST /generate/image`.
+
+    **Rate limit:** 10 requests per IP per 60-second window.
     """
     client_ip = req.client.host if req.client else "127.0.0.1"
     try:
@@ -53,12 +71,29 @@ async def analyse_image(body: AnalyseRequest, req: Request):
         )
 
 
-@router.post("/video", response_model=VideoAnalyseResponse)
+@router.post(
+    "/video",
+    response_model=VideoAnalyseResponse,
+    summary="Analyse video description → extract 10 attributes",
+    response_description="10 structured video attributes ready for user editing",
+)
 async def analyse_video(body: VideoAnalyseRequest, req: Request):
     """
-    Groq Call 1 (Video): Analyse a raw description and extract 10 video attributes
-    across 3 groups (Overall, Camera, Audio).
-    Synchronous — returns immediately. Does NOT create a generation job.
+    **Groq Call 1 (Video):** Parse a raw user description and extract
+    10 video attributes across 3 groups:
+
+    **Overall:** subject, action, scene, style, temporal_elements
+
+    **Camera:** camera_angles, camera_movements, lens_effects
+
+    **Audio** *(informational - Luma is visual-only):*
+    dialogue, sound_effects
+
+    **Synchronous** - returns immediately. Does **not** create a generation job.
+    The returned attributes are editable in the UI before the user confirms
+    and triggers ``POST /generate/video``.
+
+    **Rate limit:** 10 requests per IP per 60-second window.
     """
     client_ip = req.client.host if req.client else "127.0.0.1"
     try:

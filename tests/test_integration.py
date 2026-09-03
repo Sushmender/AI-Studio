@@ -2,15 +2,15 @@
 test_integration.py — Integration tests for AI-Studio backend API.
 
 Prerequisites:
-  - Backend running locally with MOCK_APIS=true:
-      .venv/Scripts/uvicorn backend.main:app --reload
-  - Or set BASE_URL env var for a different target
+  - Backend running locally with MOCK_GENERATION_APIS=True:
+      .venv\\Scripts\\uvicorn backend.main:app --reload
+  - Or set AI_STUDIO_TEST_URL env var for a different target
 
 Runs against the live (mock) server to verify the full HTTP contract.
 
 Usage:
-    .venv\\Scripts\\python -m pytest tests/test_integration.py -v
-    .venv\\Scripts\\python -m pytest tests/test_integration.py -v -k "image"
+    .venv\\Scripts\\python -m pytest tests/test_integration.py -v --asyncio-mode=auto
+    .venv\\Scripts\\python -m pytest tests/test_integration.py -v -k "image" --asyncio-mode=auto
 """
 import asyncio
 import os
@@ -133,8 +133,8 @@ async def test_video_job_full_flow():
                 "camera_movements": "Steadicam follow",
                 "lens_effects": "Shallow depth of field, motion blur",
                 "temporal_elements": "Slow motion at 120fps",
-                "color_grading": "Desaturated blue-grey, cold tones",
-                "audio": "Wind howling, snow crunching"
+                "dialogue": "No dialogue — visual story only",
+                "sound_effects": "Wind howling, snow crunching"
             }
         }
         r = await client.post(f"{BASE_URL}/generate/video", json=payload)
@@ -234,13 +234,16 @@ async def test_analyse_image_returns_5_attributes():
         )
     assert r.status_code == 200
     body = r.json()
+    # AnalyseResponse wraps fields under `attributes`
+    assert "attributes" in body, f"Missing 'attributes' wrapper in response: {body}"
+    attrs = body["attributes"]
     for key in ("subject", "action", "location", "composition", "style"):
-        assert key in body, f"Missing attribute '{key}' in response: {body}"
+        assert key in attrs, f"Missing attribute '{key}' in attributes: {attrs}"
 
 
 @pytest.mark.asyncio
 async def test_analyse_video_returns_10_attributes():
-    """POST /analyse/video → returns 10 video attributes."""
+    """POST /analyse/video → returns 10 video attributes across all groups."""
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
             f"{BASE_URL}/analyse/video",
@@ -248,10 +251,14 @@ async def test_analyse_video_returns_10_attributes():
         )
     assert r.status_code == 200
     body = r.json()
+    # Must contain the nested `attributes` key
+    assert "attributes" in body, f"Missing 'attributes' wrapper in response: {body}"
+    attrs = body["attributes"]
+    # VideoAttributes schema: 5 overall + 3 camera + 2 audio fields
     expected_keys = (
-        "subject", "action", "scene", "style",
+        "subject", "action", "scene", "style", "temporal_elements",
         "camera_angles", "camera_movements", "lens_effects",
-        "temporal_elements", "color_grading", "audio"
+        "dialogue", "sound_effects",
     )
     for key in expected_keys:
-        assert key in body, f"Missing video attribute '{key}' in response: {body}"
+        assert key in attrs, f"Missing video attribute '{key}' in attributes: {attrs}"
