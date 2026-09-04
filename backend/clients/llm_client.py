@@ -1,5 +1,5 @@
 """
-groq_client.py — Groq Prompt Enhancement Client
+llm_client.py — LLM Prompt Enhancement Client
 """
 import asyncio
 import json
@@ -15,28 +15,68 @@ logger = get_logger(__name__)
 _FALLBACK_MODEL = "llama-3.1-8b-instant"
 
 
+import httpx
+
+class MockMessage:
+    def __init__(self, content):
+        self.content = content
+
+class MockChoice:
+    def __init__(self, message):
+        self.message = message
+        
+class MockCompletion:
+    def __init__(self, choices):
+        self.choices = choices
+
 async def _chat_with_fallback(client: AsyncGroq, primary_model: str, timeout: float, **kwargs: Any) -> Any:
     """
     Try primary_model first. If Groq returns RateLimitError (quota exceeded),
     automatically retry once with the fallback model.
     All other exceptions propagate normally.
     """
-    try:
-        return await asyncio.wait_for(
-            client.chat.completions.create(model=primary_model, **kwargs),
-            timeout=timeout,
-        )
-    except RateLimitError:
-        logger.warning(
-            "groq_model_fallback",
-            primary_model=primary_model,
-            fallback_model=_FALLBACK_MODEL,
-            reason="quota_exceeded",
-        )
-        return await asyncio.wait_for(
-            client.chat.completions.create(model=_FALLBACK_MODEL, **kwargs),
-            timeout=timeout,
-        )
+    settings = get_settings()
+    provider = settings.llm_provider.upper()
+
+    if provider == "OPENROUTER":
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings.openrouter_api_key}",
+        }
+        
+        payload = {
+            "model": settings.openrouter_model,
+            "messages": kwargs.get("messages", []),
+            "temperature": kwargs.get("temperature", 0.7),
+        }
+        if "max_tokens" in kwargs:
+            payload["max_tokens"] = kwargs["max_tokens"]
+            
+        async with httpx.AsyncClient(timeout=timeout) as httpx_client:
+            resp = await httpx_client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            content = data["choices"][0]["message"]["content"]
+            return MockCompletion([MockChoice(MockMessage(content))])
+    else:
+        try:
+            return await asyncio.wait_for(
+                client.chat.completions.create(model=primary_model, **kwargs),
+                timeout=timeout,
+            )
+        except RateLimitError:
+            logger.warning(
+                "groq_model_fallback",
+                primary_model=primary_model,
+                fallback_model=_FALLBACK_MODEL,
+                reason="quota_exceeded",
+            )
+            return await asyncio.wait_for(
+                client.chat.completions.create(model=_FALLBACK_MODEL, **kwargs),
+                timeout=timeout,
+            )
 
 
 def _extract_json(text: str) -> dict:

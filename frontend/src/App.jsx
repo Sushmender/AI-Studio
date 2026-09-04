@@ -76,6 +76,7 @@ export default function App() {
         job_id: activeJobId,
         raw_prompt: activeJob?.raw_prompt,
         enhanced_prompt: activeJob?.enhanced_prompt,
+        created_at: Date.now(),
       });
       if (lastToastedJobId.current !== activeJobId) {
         lastToastedJobId.current = activeJobId;

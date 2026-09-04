@@ -268,7 +268,7 @@ AI_Studio/
 │   ├── clients/
 │   │   ├── fal_client.py         # fal.ai image generation
 │   │   ├── replicate_client.py   # Replicate video generation
-│   │   └── groq_client.py        # Groq: analyse + synthesize (4 functions)
+│   │   └── llm_client.py         # LLM (Groq/OpenRouter): analyse + synthesize
 │   ├── routes/
 │   │   ├── generate.py           # POST /generate/image|video
 │   │   ├── jobs.py               # GET /jobs, /jobs/{id}/status|result
@@ -297,6 +297,7 @@ AI_Studio/
 │           ├── PromptConsole.jsx
 │           ├── ImageAttributeEditor.jsx
 │           ├── VideoAttributeEditor.jsx
+│           ├── AnalysingState.jsx    # Cosmic analysis animation
 │           ├── GeneratingState.jsx   # Cosmic orbit animation
 │           ├── ResultGallery.jsx
 │           ├── Lightbox.jsx

@@ -1,25 +1,24 @@
 /**
- * VideoAttributeEditor.jsx — Shows 10 structured video attributes across 3 groups.
+ * VideoAttributeEditor.jsx — Shows 10 structured video attributes across 3 collapsible groups.
  *
  * Layout:
  *   ┌──────────────────────────────────────────────────────────┐
  *   │ ▸ Your description (collapsible, read-only)              │
  *   ├──────────────────────────────────────────────────────────┤
- *   │ ● OVERALL                                    (5 fields)  │
+ *   │ ▾ OVERALL [open]                             (5 fields)  │
  *   │   🎭 Subject    [inline editable]                        │
  *   │   ⚡ Action     [inline editable]                        │
  *   │   🌍 Scene      [inline editable]                        │
  *   │   🎨 Style      [inline editable]                        │
  *   │   ⏱ Temporal   [inline editable]                        │
  *   ├──────────────────────────────────────────────────────────┤
- *   │ ● CAMERA                                     (3 fields)  │
+ *   │ ▾ CAMERA [open]                              (3 fields)  │
  *   │   📐 Angles     [inline editable]                        │
  *   │   🎬 Movements  [inline editable]                        │
  *   │   🔭 Lens       [inline editable]                        │
  *   ├──────────────────────────────────────────────────────────┤
- *   │ ● AUDIO   🔇 Visual-only badge                (2 fields)  │
- *   │   💬 Dialogue   [inline editable]                        │
- *   │   🔊 SFX        [inline editable]                        │
+ *   │ ▸ AUDIO 🔇 [collapsed by default]            (2 fields)  │
+ *   │   → collapsed summary: "Not specified · Not specified"   │
  *   ├──────────────────────────────────────────────────────────┤
  *   │  [↩ Re-analyse]                  [🎬 Generate Video]    │
  *   └──────────────────────────────────────────────────────────┘
@@ -41,6 +40,7 @@ const ATTRIBUTE_GROUPS = [
     id: 'overall',
     label: 'Overall',
     dot: '#4fffb0',
+    defaultOpen: true,
     fields: [
       { key: 'subject',           label: 'Subject',           desc: 'Who or what is the main focus',            icon: '🎭' },
       { key: 'action',            label: 'Action',            desc: 'What is happening — motion, narrative',     icon: '⚡' },
@@ -53,6 +53,7 @@ const ATTRIBUTE_GROUPS = [
     id: 'camera',
     label: 'Camera',
     dot: '#60a5fa',
+    defaultOpen: true,
     fields: [
       { key: 'camera_angles',    label: 'Angles',    desc: 'Shot viewpoints — wide, close-up, bird\'s eye', icon: '📐' },
       { key: 'camera_movements', label: 'Movements', desc: 'Dolly, pan, handheld, steadicam, drone',        icon: '🎬' },
@@ -64,6 +65,7 @@ const ATTRIBUTE_GROUPS = [
     label: 'Audio',
     dot: '#94a3b8',
     audioOnly: true, // shows 🔇 badge
+    defaultOpen: false, // collapsed by default — visual-only model, less critical
     fields: [
       { key: 'dialogue',      label: 'Dialogue', desc: 'Spoken words or voice-over', icon: '💬' },
       { key: 'sound_effects', label: 'Sound FX', desc: 'Distinct sounds in the scene', icon: '🔊' },
@@ -71,7 +73,7 @@ const ATTRIBUTE_GROUPS = [
   },
 ];
 
-// ── Inline-editable attribute row (same mechanic as ImageAttributeEditor) ───
+// ── Inline-editable attribute row ────────────────────────────────────────────
 
 function VideoAttributeRow({ meta, value, onUpdate, muted = false }) {
   const [editing, setEditing] = useState(false);
@@ -109,6 +111,7 @@ function VideoAttributeRow({ meta, value, onUpdate, muted = false }) {
         <span className="attr-row__icon" aria-hidden="true">{meta.icon}</span>
         <div>
           <span className="attr-row__label">{meta.label}</span>
+          {editing && <span className="attr-row__editing-badge">✏ Editing</span>}
           <span className="attr-row__desc">{meta.desc}</span>
         </div>
       </div>
@@ -126,17 +129,17 @@ function VideoAttributeRow({ meta, value, onUpdate, muted = false }) {
               aria-label={`Edit ${meta.label}`}
             />
             <div className="attr-row__editor-actions">
-              <button 
-                type="button" 
-                className="btn btn--secondary" 
+              <button
+                type="button"
+                className="btn btn--secondary"
                 onClick={() => { setEditing(false); setDraft(value); }}
                 style={{ padding: '4px 12px', fontSize: '12px' }}
               >
                 Cancel
               </button>
-              <button 
-                type="button" 
-                className="btn btn--primary" 
+              <button
+                type="button"
+                className="btn btn--primary"
                 onClick={commitEdit}
                 style={{ padding: '4px 12px', fontSize: '12px' }}
               >
@@ -163,7 +166,7 @@ function VideoAttributeRow({ meta, value, onUpdate, muted = false }) {
   );
 }
 
-// ── Collapsible original description (reused pattern) ───────────────────────
+// ── Collapsible original description ─────────────────────────────────────────
 
 function OriginalDescription({ text }) {
   const [open, setOpen] = useState(false);
@@ -183,23 +186,71 @@ function OriginalDescription({ text }) {
   );
 }
 
-// ── Group header ─────────────────────────────────────────────────────────────
+// ── Collapsible accordion group ───────────────────────────────────────────────
 
-function GroupHeader({ group }) {
+function AttributeGroup({ group, attributes, onUpdate, defaultOpen }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen ?? group.defaultOpen ?? true);
+
+  // Summary of field values for collapsed view
+  const collapsedSummary = group.fields
+    .map((f) => attributes[f.key] || 'Not specified')
+    .map((v) => (v.length > 30 ? v.slice(0, 30) + '…' : v))
+    .join(' · ');
+
   return (
-    <div className="vattr-group__header">
-      <span className="vattr-group__dot" style={{ background: group.dot }} aria-hidden="true" />
-      <span className="vattr-group__label">{group.label}</span>
-      {group.audioOnly && (
-        <span className="vattr-group__audio-badge" title="This model is visual-only. Audio fields guide the visual mood but are not rendered as sound.">
-          🔇 Visual-only
+    <div className={`vattr-group${group.audioOnly ? ' vattr-group--audio' : ''}`}>
+      {/* Accordion header */}
+      <button
+        type="button"
+        className="vattr-group__header vattr-group__toggle"
+        onClick={() => setIsOpen((o) => !o)}
+        aria-expanded={isOpen}
+        aria-controls={`vattr-group-${group.id}`}
+      >
+        <span className="vattr-group__chevron" aria-hidden="true">
+          {isOpen ? '▾' : '▸'}
         </span>
+        <span className="vattr-group__dot" style={{ background: group.dot }} aria-hidden="true" />
+        <span className="vattr-group__label">{group.label}</span>
+        {group.audioOnly && (
+          <span
+            className="vattr-group__audio-badge"
+            title="This model is visual-only. Audio fields guide the visual mood but are not rendered as sound."
+          >
+            🔇 Visual-only
+          </span>
+        )}
+        <span className="vattr-group__field-count">
+          {group.fields.length} {group.fields.length === 1 ? 'field' : 'fields'}
+        </span>
+      </button>
+
+      {/* Collapsed summary */}
+      {!isOpen && (
+        <div className="vattr-group__summary" id={`vattr-group-${group.id}`}>
+          {collapsedSummary}
+        </div>
+      )}
+
+      {/* Expanded fields */}
+      {isOpen && (
+        <div className="attr-editor__rows" id={`vattr-group-${group.id}`}>
+          {group.fields.map((meta) => (
+            <VideoAttributeRow
+              key={meta.key}
+              meta={meta}
+              value={attributes[meta.key] ?? ''}
+              onUpdate={onUpdate}
+              muted={group.audioOnly}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function VideoAttributeEditor({
   attributes,
@@ -231,23 +282,15 @@ export function VideoAttributeEditor({
       {/* Collapsible original description */}
       {rawDescription && <OriginalDescription text={rawDescription} />}
 
-      {/* 3 groups × N fields */}
+      {/* 3 accordion groups */}
       <div className="vattr-groups">
         {ATTRIBUTE_GROUPS.map((group) => (
-          <div key={group.id} className={`vattr-group${group.audioOnly ? ' vattr-group--audio' : ''}`}>
-            <GroupHeader group={group} />
-            <div className="attr-editor__rows">
-              {group.fields.map((meta) => (
-                <VideoAttributeRow
-                  key={meta.key}
-                  meta={meta}
-                  value={attributes[meta.key] ?? ''}
-                  onUpdate={onUpdate}
-                  muted={group.audioOnly}
-                />
-              ))}
-            </div>
-          </div>
+          <AttributeGroup
+            key={group.id}
+            group={group}
+            attributes={attributes}
+            onUpdate={onUpdate}
+          />
         ))}
       </div>
 
@@ -258,12 +301,12 @@ export function VideoAttributeEditor({
 
       {/* Action bar */}
       <div className="attr-editor__actions">
-        <div style={{ display: 'flex', gap: 'var(--space-3)', width: '100%' }}>
+        {/* Utility row: Re-analyse (weighted) + Copy (compact) */}
+        <div className="attr-editor__util-row">
           <button
             id="video-reanalyse-btn"
             type="button"
-            className="btn btn--secondary"
-            style={{ flex: 1 }}
+            className="btn btn--secondary attr-editor__reanalyse-btn"
             onClick={onReanalyse}
             disabled={isGenerating}
           >
@@ -273,8 +316,7 @@ export function VideoAttributeEditor({
           <button
             id="copy-video-attrs-btn"
             type="button"
-            className={`btn btn--secondary attr-editor__copy-btn${copied ? ' attr-editor__copy-btn--copied' : ''}`}
-            style={{ flex: 1 }}
+            className={`btn btn--secondary attr-editor__copy-util-btn attr-editor__copy-btn${copied ? ' attr-editor__copy-btn--copied' : ''}`}
             onClick={handleCopy}
             aria-label="Copy attributes to clipboard"
             title="Copy attributes to clipboard"
@@ -283,6 +325,7 @@ export function VideoAttributeEditor({
           </button>
         </div>
 
+        {/* Primary CTA — visually separated by the increased gap */}
         <button
           id="generate-video-structured-btn"
           type="button"
@@ -293,7 +336,7 @@ export function VideoAttributeEditor({
         >
           {isGenerating ? '⏳ Generating…' : (
             <>
-              🎬 Generate video <span className="attr-editor__estimate" style={{ opacity: 0.7, fontSize: '0.85em', marginLeft: '6px' }}>~2-5 min</span>
+              🎬 Generate video <span className="attr-editor__estimate">~2-5 min</span>
             </>
           )}
         </button>

@@ -1,13 +1,15 @@
 /**
- * JobStatusStrip.jsx — Live list of all submitted jobs (active + recent).
+ * JobStatusStrip.jsx — Collapsible card showing all submitted jobs (active + recent).
  *
- * Each row shows:
- *  - Mode icon (🖼/🎬)
- *  - Prompt snippet (first 60 chars)
- *  - Status badge with pulsing dot for generating
- *  - Elapsed time / estimated wait for video jobs
+ * Features:
+ *  - Collapsible with chevron toggle
+ *  - Auto-expands when a new active/generating job is detected
+ *  - Count badge in header when collapsed
+ *  - Left border colour reflects overall status (amber=active, green=all done)
+ *  - Each row shows: mode icon, prompt snippet, status badge, elapsed time
  *  - Inline error summary for failed jobs
  */
+import { useState, useEffect } from 'react';
 
 const MODE_ICONS = { image: '🖼', video: '🎬' };
 
@@ -93,16 +95,63 @@ function JobStatusItem({ job }) {
 }
 
 export function JobStatusStrip({ jobs }) {
+  const hasActiveJobs = jobs.some(
+    (j) => j.status === 'generating' || j.status === 'queued',
+  );
+
+  // Auto-expand when jobs first appear or a new active job starts
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  useEffect(() => {
+    if (hasActiveJobs) {
+      setIsExpanded(true);
+    }
+  }, [hasActiveJobs]);
+
   if (!jobs || jobs.length === 0) return null;
 
+  // Determine strip status modifier for left-border colour
+  const stripModifier = hasActiveJobs
+    ? 'job-strip--active'
+    : jobs.some((j) => j.status === 'failed')
+    ? 'job-strip--failed'
+    : 'job-strip--done';
+
   return (
-    <aside className="job-strip" aria-label="Job history">
-      <h2 className="job-strip__title">Jobs</h2>
-      <ul className="job-strip__list" role="list">
-        {jobs.map((job) => (
-          <JobStatusItem key={job.job_id} job={job} />
-        ))}
-      </ul>
+    <aside className={`job-strip ${stripModifier}`} aria-label="Job history">
+      {/* Collapsible header */}
+      <div className="job-strip__header">
+        <button
+          type="button"
+          className="job-strip__collapse-btn"
+          onClick={() => setIsExpanded((o) => !o)}
+          aria-expanded={isExpanded}
+          aria-controls="job-strip-list"
+          aria-label={isExpanded ? 'Collapse jobs panel' : 'Expand jobs panel'}
+        >
+          <span className="job-strip__chevron" aria-hidden="true">
+            {isExpanded ? '▾' : '▸'}
+          </span>
+          <span className="job-strip__title">Jobs</span>
+          {!isExpanded && (
+            <span className="job-strip__count-badge" aria-label={`${jobs.length} jobs`}>
+              {jobs.length}
+            </span>
+          )}
+          {hasActiveJobs && (
+            <span className="job-strip__active-indicator" aria-hidden="true" />
+          )}
+        </button>
+      </div>
+
+      {/* Collapsible list */}
+      {isExpanded && (
+        <ul id="job-strip-list" className="job-strip__list" role="list">
+          {jobs.map((job) => (
+            <JobStatusItem key={job.job_id} job={job} />
+          ))}
+        </ul>
+      )}
     </aside>
   );
 }

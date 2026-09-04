@@ -5,9 +5,11 @@
  *   ┌──────────────────────────────────────────────────┐
  *   │ ▸ Your description (collapsible, read-only)      │
  *   ├──────────────────────────────────────────────────┤
+ *   │ ── Scene ──────────────────────────────────────  │
  *   │ SUBJECT        [inline editable text]            │
  *   │ ACTION         [inline editable text]            │
  *   │ LOCATION       [inline editable text]            │
+ *   │ ── Framing & Style ────────────────────────────  │
  *   │ COMPOSITION    [inline editable text]            │
  *   │ STYLE          [inline editable text]            │
  *   ├──────────────────────────────────────────────────┤
@@ -30,30 +32,35 @@ const ATTRIBUTE_META = [
     label: 'Subject',
     description: 'Who or what is the main focus',
     icon: '👤',
+    group: 'scene',
   },
   {
     key: 'action',
     label: 'Action',
     description: 'What is happening — pose, motion, or state',
     icon: '⚡',
+    group: 'scene',
   },
   {
     key: 'location',
     label: 'Location',
     description: 'The setting, environment, and time of day',
     icon: '🌍',
+    group: 'scene',
   },
   {
     key: 'composition',
     label: 'Composition',
     description: 'Camera angle, framing, depth of field, lighting',
     icon: '📷',
+    group: 'framing',
   },
   {
     key: 'style',
     label: 'Style',
     description: 'Overall aesthetic, art movement, color palette, mood',
     icon: '🎨',
+    group: 'framing',
   },
 ];
 
@@ -105,6 +112,7 @@ function AttributeRow({ meta, value, onUpdate }) {
         <span className="attr-row__icon" aria-hidden="true">{meta.icon}</span>
         <div>
           <span className="attr-row__label">{meta.label}</span>
+          {editing && <span className="attr-row__editing-badge">✏ Editing</span>}
           <span className="attr-row__desc">{meta.description}</span>
         </div>
       </div>
@@ -122,17 +130,17 @@ function AttributeRow({ meta, value, onUpdate }) {
               aria-label={`Edit ${meta.label}`}
             />
             <div className="attr-row__editor-actions">
-              <button 
-                type="button" 
-                className="btn btn--secondary" 
+              <button
+                type="button"
+                className="btn btn--secondary"
                 onClick={() => { setEditing(false); setDraft(value); }}
                 style={{ padding: '4px 12px', fontSize: '12px' }}
               >
                 Cancel
               </button>
-              <button 
-                type="button" 
-                className="btn btn--primary" 
+              <button
+                type="button"
+                className="btn btn--primary"
                 onClick={commitEdit}
                 style={{ padding: '4px 12px', fontSize: '12px' }}
               >
@@ -179,6 +187,16 @@ function OriginalDescription({ text }) {
   );
 }
 
+// ── Section divider ──────────────────────────────────────────────────────────
+
+function AttrSectionDivider({ label }) {
+  return (
+    <div className="attr-section-divider" aria-hidden="true">
+      <span className="attr-section-divider__label">{label}</span>
+    </div>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 
 export function ImageAttributeEditor({
@@ -205,14 +223,27 @@ export function ImageAttributeEditor({
     }).catch(() => {});
   }
 
+  const sceneAttrs = ATTRIBUTE_META.filter((m) => m.group === 'scene');
+  const framingAttrs = ATTRIBUTE_META.filter((m) => m.group === 'framing');
+
   return (
     <div className="attr-editor" aria-label="Image Attributes Editor">
       {/* Collapsible original description */}
       {rawDescription && <OriginalDescription text={rawDescription} />}
 
-      {/* 5 attribute rows */}
+      {/* Scene group */}
       <div className="attr-editor__rows">
-        {ATTRIBUTE_META.map((meta) => (
+        <AttrSectionDivider label="Scene" />
+        {sceneAttrs.map((meta) => (
+          <AttributeRow
+            key={meta.key}
+            meta={meta}
+            value={attributes[meta.key] ?? ''}
+            onUpdate={onUpdate}
+          />
+        ))}
+        <AttrSectionDivider label="Framing & Style" />
+        {framingAttrs.map((meta) => (
           <AttributeRow
             key={meta.key}
             meta={meta}
@@ -224,12 +255,12 @@ export function ImageAttributeEditor({
 
       {/* Action bar */}
       <div className="attr-editor__actions">
-        <div style={{ display: 'flex', gap: 'var(--space-3)', width: '100%' }}>
+        {/* Utility row: Re-analyse (weighted) + Copy (compact) */}
+        <div className="attr-editor__util-row">
           <button
             id="reanalyse-btn"
             type="button"
-            className="btn btn--secondary"
-            style={{ flex: 1 }}
+            className="btn btn--secondary attr-editor__reanalyse-btn"
             onClick={onReanalyse}
             disabled={isGenerating}
           >
@@ -239,8 +270,7 @@ export function ImageAttributeEditor({
           <button
             id="copy-image-attrs-btn"
             type="button"
-            className={`btn btn--secondary attr-editor__copy-btn${copied ? ' attr-editor__copy-btn--copied' : ''}`}
-            style={{ flex: 1 }}
+            className={`btn btn--secondary attr-editor__copy-util-btn attr-editor__copy-btn${copied ? ' attr-editor__copy-btn--copied' : ''}`}
             onClick={handleCopy}
             aria-label="Copy attributes to clipboard"
             title="Copy attributes to clipboard"
@@ -249,6 +279,7 @@ export function ImageAttributeEditor({
           </button>
         </div>
 
+        {/* Primary CTA — visually separated by the increased gap */}
         <button
           id="generate-image-btn"
           type="button"
@@ -259,7 +290,7 @@ export function ImageAttributeEditor({
         >
           {isGenerating ? '⏳ Generating…' : (
             <>
-              ✦ Generate image <span className="attr-editor__estimate" style={{ opacity: 0.7, fontSize: '0.85em', marginLeft: '6px' }}>~5s</span>
+              ✦ Generate image <span className="attr-editor__estimate">~5s</span>
             </>
           )}
         </button>

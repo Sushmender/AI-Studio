@@ -7,7 +7,7 @@ POST /analyse/image
 """
 from fastapi import APIRouter, HTTPException, Request
 
-from backend.clients.groq_client import analyse_image_attributes, analyse_video_attributes
+from backend.clients.llm_client import analyse_image_attributes, analyse_video_attributes
 from backend.models.schemas import AnalyseRequest, AnalyseResponse, VideoAnalyseRequest, VideoAnalyseResponse
 from backend.services.rate_limiter import rate_limiter, RateLimitExceeded
 from backend.utils.logger import get_logger

@@ -18,7 +18,7 @@ from backend.models.schemas import (
 from backend.services.job_store import job_store
 from backend.utils.logger import get_logger, bind_job_context
 from backend.clients import fal_client, replicate_client
-from backend.clients.groq_client import synthesize_image_prompt, synthesize_video_prompt
+from backend.clients.llm_client import synthesize_image_prompt, synthesize_video_prompt
 from backend.services.prompt_service import enhance
 from backend.services.rate_limiter import rate_limiter, RateLimitExceeded
 from backend.utils.tasks import log_task_exception

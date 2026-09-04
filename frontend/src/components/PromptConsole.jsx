@@ -3,12 +3,12 @@
  *
  * States (image mode):
  *   idle       → textarea + "Analyse Description" button
- *   analysing  → textarea (disabled) + spinner
+ *   analysing  → AnalysingState cosmic animation (full-replace)
  *   ready      → <ImageAttributeEditor> with 5 editable fields
  *
  * States (video mode):
  *   idle       → textarea + "Analyse Description" button
- *   analysing  → textarea (disabled) + spinner
+ *   analysing  → AnalysingState cosmic animation (full-replace)
  *   ready      → <VideoAttributeEditor> with 10 fields across 3 groups
  *
  * Props:
@@ -22,6 +22,7 @@ import { useVideoAnalysis } from '../hooks/useVideoAnalysis';
 import { usePromptHistory } from '../hooks/usePromptHistory';
 import { ImageAttributeEditor } from './ImageAttributeEditor';
 import { VideoAttributeEditor } from './VideoAttributeEditor';
+import { AnalysingState } from './AnalysingState';
 
 const MAX_CHARS = 2000;
 
@@ -73,12 +74,16 @@ export function PromptConsole({
   const currentState = mode === 'image' ? imageState : videoState;
   const hasGeneratedCurrent = mode === 'image' ? hasGeneratedImage : hasGeneratedVideo;
 
+  // Proactive validation: button disabled until textarea has content
+  const isPromptEmpty = !prompt.trim();
+  const currentAnalysing = mode === 'image' ? analysing : analysingVideo;
+
   function handleKeyDown(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
-      if (mode === 'image' && imageState !== 'ready' && !analysing && !isGenerating) {
+      if (mode === 'image' && imageState !== 'ready' && !analysing && !isGenerating && !isPromptEmpty) {
         handleAnalyseImage(e);
-      } else if (mode === 'video' && videoState !== 'ready' && !analysingVideo && !isGenerating) {
+      } else if (mode === 'video' && videoState !== 'ready' && !analysingVideo && !isGenerating && !isPromptEmpty) {
         handleAnalyseVideo(e);
       }
     }
@@ -90,10 +95,7 @@ export function PromptConsole({
   async function handleAnalyseImage(e) {
     e.preventDefault();
     const trimmed = prompt.trim();
-    if (!trimmed) {
-      setValidationError('Prompt cannot be empty');
-      return;
-    }
+    if (!trimmed) return; // button is disabled when empty, but guard anyway
     setValidationError('');
     setHasGeneratedImage(false);
     addToHistory(trimmed, 'image');
@@ -106,14 +108,18 @@ export function PromptConsole({
     onSubmitImage({ attributes });
   }
 
-  // ── Image: Re-analyse ─────────────────────────────────────────────────────
+  // ── Image: Re-analyse (Step 1 back-nav) ──────────────────────────────────
   function handleReanalyseImage() {
     setHasGeneratedImage(false);
     reset();
-    // Restore the textarea to what was there before (rawDescription)
     setPrompt(rawDescription || prompt);
   }
-  
+
+  // ── Image: Back to Edit (Step 2 back-nav from Generate) ──────────────────
+  function handleBackToEditImage() {
+    setHasGeneratedImage(false);
+  }
+
   function handleUpdateImageAttribute(key, val) {
     setHasGeneratedImage(false);
     updateAttribute(key, val);
@@ -123,10 +129,7 @@ export function PromptConsole({
   async function handleAnalyseVideo(e) {
     e.preventDefault();
     const trimmed = prompt.trim();
-    if (!trimmed) {
-      setValidationError('Prompt cannot be empty');
-      return;
-    }
+    if (!trimmed) return;
     setValidationError('');
     setHasGeneratedVideo(false);
     addToHistory(trimmed, 'video');
@@ -139,11 +142,16 @@ export function PromptConsole({
     onSubmitVideo({ video_attributes: videoAttributes });
   }
 
-  // ── Video: Re-analyse ─────────────────────────────────────────────────────
+  // ── Video: Re-analyse (Step 1 back-nav) ──────────────────────────────────
   function handleReanalyseVideo() {
     setHasGeneratedVideo(false);
     resetVideo();
     setPrompt(rawVideoDescription || prompt);
+  }
+
+  // ── Video: Back to Edit (Step 2 back-nav from Generate) ──────────────────
+  function handleBackToEditVideo() {
+    setHasGeneratedVideo(false);
   }
 
   function handleUpdateVideoAttribute(key, val) {
@@ -181,16 +189,45 @@ export function PromptConsole({
 
   const currentHistory = history[mode] ?? [];
 
+  // ── Step click handlers ───────────────────────────────────────────────────
+  // Step 1 clickable when in Edit or Generate steps (currentState === 'ready')
+  const canClickStep1 = currentState === 'ready' && !isGenerating && !currentAnalysing;
+  // Step 2 clickable when in Generate step (hasGeneratedCurrent && currentState === 'ready')
+  const canClickStep2 = hasGeneratedCurrent && currentState === 'ready' && !isGenerating && !currentAnalysing;
+
+  function handleStep1Click() {
+    if (!canClickStep1) return;
+    if (mode === 'image') handleReanalyseImage();
+    else handleReanalyseVideo();
+  }
+
+  function handleStep2Click() {
+    if (!canClickStep2) return;
+    if (mode === 'image') handleBackToEditImage();
+    else handleBackToEditVideo();
+  }
+
+  // Determine stepper step states
+  const step1State = currentState === 'idle' || currentState === 'analysing'
+    ? 'active'
+    : 'completed';
+  const step2State = currentState === 'ready' && !isGenerating && !hasGeneratedCurrent
+    ? 'active'
+    : currentState === 'ready'
+    ? 'completed'
+    : '';
+  const step3State = isGenerating || hasGeneratedCurrent ? 'active' : '';
+
   return (
     <section className="prompt-console" aria-label="Prompt Console">
       <header className="prompt-console__header">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+        {/* Title row — PROMPT CONSOLE label + Start Over on the same centerline */}
+        <div className="prompt-console__header-row">
           <h2 className="prompt-console__title">Prompt Console</h2>
           {(prompt.length > 0 || imageState === 'ready' || videoState === 'ready') && (
-            <button 
-              type="button" 
-              className="btn btn--secondary" 
-              style={{ padding: '2px 8px', fontSize: '10px', height: '20px', minHeight: '20px' }}
+            <button
+              type="button"
+              className="btn--ghost-danger"
               onClick={handleStartOver}
               disabled={isGenerating || analysing || analysingVideo}
               aria-label="Start over"
@@ -200,38 +237,79 @@ export function PromptConsole({
           )}
         </div>
 
-        {/* Mode toggle */}
-        <div className="mode-toggle" style={{ margin: '0 auto' }} role="group" aria-label="Generation mode">
-          {MODE_OPTIONS.map(({ value, label }) => (
-            <button
-              key={value}
-              type="button"
-              id={`mode-toggle-${value}`}
-              className={`mode-toggle__btn${mode === value ? ' mode-toggle__btn--active' : ''}`}
-              onClick={() => handleModeSwitch(value)}
-              disabled={isGenerating || analysing || analysingVideo}
-              aria-pressed={mode === value}
-            >
-              {label}
-            </button>
-          ))}
+        {/* Mode toggle — clearly grouped under the title */}
+        <div className="prompt-console__mode-row">
+          <div className="mode-toggle" role="group" aria-label="Generation mode">
+            {MODE_OPTIONS.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                id={`mode-toggle-${value}`}
+                className={`mode-toggle__btn${mode === value ? ' mode-toggle__btn--active' : ''}`}
+                onClick={() => handleModeSwitch(value)}
+                disabled={isGenerating || analysing || analysingVideo}
+                aria-pressed={mode === value}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
       {/* Pipeline Stepper */}
       <div className="pipeline-stepper" aria-label="Progress">
-        <div className={`stepper-step ${currentState === 'idle' || currentState === 'analysing' ? 'stepper-step--active' : 'stepper-step--completed'}`}>1. Analyse</div>
+        {/* Step 1: Analyse — clickable when in Edit/Generate */}
+        {canClickStep1 ? (
+          <button
+            type="button"
+            className={`stepper-step stepper-step--${step1State} stepper-step--clickable`}
+            onClick={handleStep1Click}
+            title="Back to Analyse"
+            aria-label="Go back to Analyse step"
+          >
+            1. Analyse
+          </button>
+        ) : (
+          <span className={`stepper-step${step1State ? ` stepper-step--${step1State}` : ''}`}>
+            1. Analyse
+          </span>
+        )}
+
         <span className="stepper-divider" />
-        <div className={`stepper-step ${currentState === 'ready' && !isGenerating && !hasGeneratedCurrent ? 'stepper-step--active' : (currentState === 'ready' ? 'stepper-step--completed' : '')}`}>2. Edit</div>
+
+        {/* Step 2: Edit — clickable when in Generate and attributes exist */}
+        {canClickStep2 ? (
+          <button
+            type="button"
+            className={`stepper-step stepper-step--${step2State} stepper-step--clickable`}
+            onClick={handleStep2Click}
+            title="Back to Edit"
+            aria-label="Go back to Edit step"
+          >
+            2. Edit
+          </button>
+        ) : (
+          <span className={`stepper-step${step2State ? ` stepper-step--${step2State}` : ''}`}>
+            2. Edit
+          </span>
+        )}
+
         <span className="stepper-divider" />
-        <div className={`stepper-step ${isGenerating || hasGeneratedCurrent ? 'stepper-step--active' : ''}`}>3. Generate</div>
+
+        <span className={`stepper-step${step3State ? ` stepper-step--${step3State}` : ''}`}>
+          3. Generate
+        </span>
       </div>
 
       {/* ── IMAGE MODE ─────────────────────────────────────────────────── */}
       {mode === 'image' && (
         <>
-          {/* State: idle or analysing — show textarea */}
-          {imageState !== 'ready' && (
+          {/* State: analysing — show cosmic animation */}
+          {imageState === 'analysing' && <AnalysingState mode="image" />}
+
+          {/* State: idle — show textarea */}
+          {imageState === 'idle' && (
             <form onSubmit={handleAnalyseImage} noValidate>
               <div className="prompt-console__field">
                 <label htmlFor={promptId} className="sr-only">
@@ -244,9 +322,9 @@ export function PromptConsole({
                     value={prompt}
                     onChange={handlePromptChange}
                     onKeyDown={handleKeyDown}
-                    placeholder="Describe the image you want to generate\u2026 Be as brief or detailed as you like. The AI will fill in the missing pieces."
+                    placeholder="Describe the image you want to generate… Be as brief or detailed as you like. The AI will fill in the missing pieces."
                     rows={5}
-                    disabled={analysing || isGenerating}
+                    disabled={isGenerating}
                     aria-describedby={validationError ? 'prompt-error' : 'prompt-hint'}
                   />
                   {currentHistory.length > 0 && (
@@ -258,7 +336,7 @@ export function PromptConsole({
                         aria-expanded={historyOpen}
                         aria-label="Show prompt history"
                         title="Recent prompts"
-                        disabled={analysing || isGenerating}
+                        disabled={isGenerating}
                       >
                         ▾
                       </button>
@@ -271,7 +349,7 @@ export function PromptConsole({
                                 className="prompt-history__item"
                                 onClick={() => handlePickHistory(p)}
                               >
-                                {p.slice(0, 80)}{p.length > 80 ? '\u2026' : ''}
+                                {p.slice(0, 80)}{p.length > 80 ? '…' : ''}
                               </button>
                             </li>
                           ))}
@@ -304,21 +382,15 @@ export function PromptConsole({
                 id="analyse-btn"
                 type="submit"
                 className="btn btn--primary btn--large"
-                disabled={analysing || isGenerating}
-                aria-busy={analysing}
+                disabled={isGenerating || isPromptEmpty}
+                aria-busy={false}
+                title={isPromptEmpty ? 'Enter a description to continue' : undefined}
               >
-                {analysing ? (
-                  <>
-                    <span className="btn-spinner" aria-hidden="true" />
-                    Analysing description…
-                  </>
-                ) : (
-                  '🔍 Analyse description'
-                )}
+                🔍 Analyse description
               </button>
 
               {/* Hint below button */}
-              {imageState === 'idle' && !analysisError && (
+              {!analysisError && (
                 <p className="prompt-console__hint">
                   AI will extract Subject, Action, Location, Composition, and Style — filling in anything you didn't mention.
                 </p>
@@ -343,7 +415,11 @@ export function PromptConsole({
       {/* ── VIDEO MODE ─────────────────────────────────────────────────── */}
       {mode === 'video' && (
         <>
-          {videoState !== 'ready' && (
+          {/* State: analysing — show cosmic animation */}
+          {videoState === 'analysing' && <AnalysingState mode="video" />}
+
+          {/* State: idle — show textarea */}
+          {videoState === 'idle' && (
             <form onSubmit={handleAnalyseVideo} noValidate>
               <div className="prompt-console__field">
                 <label htmlFor={promptId} className="sr-only">
@@ -356,9 +432,9 @@ export function PromptConsole({
                     value={prompt}
                     onChange={handlePromptChange}
                     onKeyDown={handleKeyDown}
-                    placeholder="Describe the video scene you want to generate\u2026 The AI will extract Overall, Camera, and Audio elements."
+                    placeholder="Describe the video scene you want to generate… The AI will extract Overall, Camera, and Audio elements."
                     rows={5}
-                    disabled={analysingVideo || isGenerating}
+                    disabled={isGenerating}
                     aria-describedby={validationError ? 'prompt-error' : 'prompt-hint'}
                   />
                   {currentHistory.length > 0 && (
@@ -370,7 +446,7 @@ export function PromptConsole({
                         aria-expanded={historyOpen}
                         aria-label="Show prompt history"
                         title="Recent prompts"
-                        disabled={analysingVideo || isGenerating}
+                        disabled={isGenerating}
                       >
                         ▾
                       </button>
@@ -383,7 +459,7 @@ export function PromptConsole({
                                 className="prompt-history__item"
                                 onClick={() => handlePickHistory(p)}
                               >
-                                {p.slice(0, 80)}{p.length > 80 ? '\u2026' : ''}
+                                {p.slice(0, 80)}{p.length > 80 ? '…' : ''}
                               </button>
                             </li>
                           ))}
@@ -416,21 +492,15 @@ export function PromptConsole({
                 id="analyse-video-btn"
                 type="submit"
                 className="btn btn--primary btn--large"
-                disabled={analysingVideo || isGenerating}
-                aria-busy={analysingVideo}
+                disabled={isGenerating || isPromptEmpty}
+                aria-busy={false}
+                title={isPromptEmpty ? 'Enter a description to continue' : undefined}
               >
-                {analysingVideo ? (
-                  <>
-                    <span className="btn-spinner" aria-hidden="true" />
-                    Analysing description…
-                  </>
-                ) : (
-                  '🔍 Analyse description'
-                )}
+                🔍 Analyse description
               </button>
 
               {/* Hint below button */}
-              {videoState === 'idle' && !videoAnalysisError && (
+              {!videoAnalysisError && (
                 <p className="prompt-console__hint">
                   AI will extract 10 video attributes — filling in anything you didn't mention.
                 </p>

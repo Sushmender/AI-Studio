@@ -19,11 +19,16 @@ class Settings(BaseSettings):
     fal_key: str
     replicate_api_token: str
     groq_api_key: str
+    openrouter_api_key: str = ""
 
     # ── Model IDs ────────────────────────────────────────────────────────────
     fal_image_model: str = "fal-ai/flux/dev"
     replicate_video_model: str = "luma/ray-flash-2-720p"
     groq_model: str = "qwen/qwen3.8-27b"
+    openrouter_model: str = "nvidia/nemotron-3-super-120b-a12b:free"
+    
+    # ── LLM Provider Toggle ──────────────────────────────────────────────────
+    llm_provider: str = "GROQ" # Can be GROQ or OPENROUTER
 
     # ── Mocking — only gates image/video generation APIs (fal.ai + Replicate)
     # Groq is always called for real (free tier — no cost to analyse/synthesize)

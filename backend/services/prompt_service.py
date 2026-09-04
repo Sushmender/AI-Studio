@@ -2,7 +2,7 @@
 prompt_service.py — Orchestrates prompt enhancement via Groq.
 """
 from typing import Literal, Tuple, Optional
-from backend.clients.groq_client import enhance_prompt
+from backend.clients.llm_client import enhance_prompt
 from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
