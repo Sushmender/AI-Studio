@@ -41,9 +41,13 @@ async def generate_image(prompt: str, width: int = 1024, height: int = 1024, num
     except asyncio.TimeoutError as e:
         logger.error("fal_timeout", error=str(e))
         raise RetryableError("fal.ai timed out") from e
-    except fal_client.HTTPError as e:
+    except fal_client.FalClientHTTPError as e:
+        logger.error("fal_http_error", error=str(e), status_code=e.status_code)
         if e.status_code and e.status_code >= 500:
             raise RetryableError(f"fal.ai server error: {e}") from e
+        raise NonRetryableError(f"fal.ai error: {e}") from e
+    except fal_client.FalClientError as e:
+        logger.error("fal_client_error", error=str(e))
         raise NonRetryableError(f"fal.ai error: {e}") from e
     except Exception as e:
         logger.error("fal_unexpected_error", error=str(e))

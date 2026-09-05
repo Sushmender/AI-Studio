@@ -44,6 +44,7 @@ async def generate_video(prompt: str, aspect_ratio: str = "16:9", duration: int 
         logger.error("replicate_timeout", error=str(e))
         raise RetryableError(f"Replicate returned a timeout (generation exceeded {settings.replicate_timeout} seconds)") from e
     except replicate.exceptions.ReplicateError as e:
+        logger.error("replicate_error", error=str(e))
         # We can map specific Replicate errors
         raise NonRetryableError(f"Replicate generation failed: {e}") from e
     except Exception as e:

@@ -5,6 +5,10 @@ Key values are NEVER logged or exposed in responses.
 """
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
+
+# Load environment variables into os.environ for external SDKs (e.g., fal_client, replicate)
+load_dotenv(".env")
 
 
 class Settings(BaseSettings):
