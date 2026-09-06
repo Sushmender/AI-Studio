@@ -12,8 +12,10 @@
  *   ready      → <VideoAttributeEditor> with 10 fields across 3 groups
  *
  * Props:
- *   onSubmitImage({ attributes })       — called when Generate Image is clicked
- *   onSubmitVideo({ video_attributes }) — called when Generate Video is clicked
+ *   onSynthesizeImage({ attributes })       — called when Synthesize Prompt is clicked
+ *   onSynthesizeVideo({ video_attributes }) — called when Synthesize Prompt is clicked
+ *   onBackToEdit()                      — called when navigating back to Edit Attributes
+ *   isSynthesizing                      — disables actions while synthesizing
  *   isGenerating                        — disables all actions while a job runs
  */
 import { useState, useId, useRef } from 'react';
@@ -32,15 +34,18 @@ const MODE_OPTIONS = [
 ];
 
 export function PromptConsole({
-  onSubmitImage,
-  onSubmitVideo,
+  onSynthesizeImage,
+  onSynthesizeVideo,
+  onBackToEdit,
+  isSynthesizing,
   isGenerating,
+  finalPrompt,
 }) {
   const [mode, setMode] = useState('image');
   const [prompt, setPrompt] = useState('');
   const [validationError, setValidationError] = useState('');
-  const [hasGeneratedImage, setHasGeneratedImage] = useState(false);
-  const [hasGeneratedVideo, setHasGeneratedVideo] = useState(false);
+  const [hasSynthesizedImage, setHasSynthesizedImage] = useState(false);
+  const [hasSynthesizedVideo, setHasSynthesizedVideo] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const promptId = useId();
   const historyRef = useRef(null);
@@ -72,7 +77,7 @@ export function PromptConsole({
   const videoState = videoAttributes ? 'ready' : analysingVideo ? 'analysing' : 'idle';
 
   const currentState = mode === 'image' ? imageState : videoState;
-  const hasGeneratedCurrent = mode === 'image' ? hasGeneratedImage : hasGeneratedVideo;
+  const hasSynthesizedCurrent = mode === 'image' ? hasSynthesizedImage : hasSynthesizedVideo;
 
   // Proactive validation: button disabled until textarea has content
   const isPromptEmpty = !prompt.trim();
@@ -97,31 +102,35 @@ export function PromptConsole({
     const trimmed = prompt.trim();
     if (!trimmed) return; // button is disabled when empty, but guard anyway
     setValidationError('');
-    setHasGeneratedImage(false);
+    setHasSynthesizedImage(false);
+    if (onBackToEdit) onBackToEdit();
     addToHistory(trimmed, 'image');
     await analyse(trimmed);
   }
 
-  // ── Image: Generate from attributes ──────────────────────────────────────
-  function handleGenerateImage() {
-    setHasGeneratedImage(true);
-    onSubmitImage({ attributes });
+  // ── Image: Synthesize from attributes ──────────────────────────────────────
+  function handleSynthesizeImage() {
+    setHasSynthesizedImage(true);
+    onSynthesizeImage({ attributes, prompt });
   }
 
   // ── Image: Re-analyse (Step 1 back-nav) ──────────────────────────────────
   function handleReanalyseImage() {
-    setHasGeneratedImage(false);
+    setHasSynthesizedImage(false);
+    if (onBackToEdit) onBackToEdit();
     reset();
     setPrompt(rawDescription || prompt);
   }
 
-  // ── Image: Back to Edit (Step 2 back-nav from Generate) ──────────────────
+  // ── Image: Back to Edit (Step 2 back-nav from Review) ──────────────────
   function handleBackToEditImage() {
-    setHasGeneratedImage(false);
+    setHasSynthesizedImage(false);
+    if (onBackToEdit) onBackToEdit();
   }
 
   function handleUpdateImageAttribute(key, val) {
-    setHasGeneratedImage(false);
+    setHasSynthesizedImage(false);
+    if (onBackToEdit) onBackToEdit();
     updateAttribute(key, val);
   }
 
@@ -131,31 +140,35 @@ export function PromptConsole({
     const trimmed = prompt.trim();
     if (!trimmed) return;
     setValidationError('');
-    setHasGeneratedVideo(false);
+    setHasSynthesizedVideo(false);
+    if (onBackToEdit) onBackToEdit();
     addToHistory(trimmed, 'video');
     await analyseVideo(trimmed);
   }
 
-  // ── Video: Generate from attributes ──────────────────────────────────────
-  function handleGenerateVideo() {
-    setHasGeneratedVideo(true);
-    onSubmitVideo({ video_attributes: videoAttributes });
+  // ── Video: Synthesize from attributes ──────────────────────────────────────
+  function handleSynthesizeVideo() {
+    setHasSynthesizedVideo(true);
+    onSynthesizeVideo({ video_attributes: videoAttributes, prompt });
   }
 
   // ── Video: Re-analyse (Step 1 back-nav) ──────────────────────────────────
   function handleReanalyseVideo() {
-    setHasGeneratedVideo(false);
+    setHasSynthesizedVideo(false);
+    if (onBackToEdit) onBackToEdit();
     resetVideo();
     setPrompt(rawVideoDescription || prompt);
   }
 
-  // ── Video: Back to Edit (Step 2 back-nav from Generate) ──────────────────
+  // ── Video: Back to Edit (Step 2 back-nav from Review) ──────────────────
   function handleBackToEditVideo() {
-    setHasGeneratedVideo(false);
+    setHasSynthesizedVideo(false);
+    if (onBackToEdit) onBackToEdit();
   }
 
   function handleUpdateVideoAttribute(key, val) {
-    setHasGeneratedVideo(false);
+    setHasSynthesizedVideo(false);
+    if (onBackToEdit) onBackToEdit();
     updateVideoAttribute(key, val);
   }
 
@@ -172,8 +185,9 @@ export function PromptConsole({
   }
 
   function handleStartOver() {
-    setHasGeneratedImage(false);
-    setHasGeneratedVideo(false);
+    setHasSynthesizedImage(false);
+    setHasSynthesizedVideo(false);
+    if (onBackToEdit) onBackToEdit();
     reset();
     resetVideo();
     setPrompt('');
@@ -190,10 +204,10 @@ export function PromptConsole({
   const currentHistory = history[mode] ?? [];
 
   // ── Step click handlers ───────────────────────────────────────────────────
-  // Step 1 clickable when in Edit or Generate steps (currentState === 'ready')
-  const canClickStep1 = currentState === 'ready' && !isGenerating && !currentAnalysing;
-  // Step 2 clickable when in Generate step (hasGeneratedCurrent && currentState === 'ready')
-  const canClickStep2 = hasGeneratedCurrent && currentState === 'ready' && !isGenerating && !currentAnalysing;
+  // Step 1 clickable when in Edit or Review steps (currentState === 'ready')
+  const canClickStep1 = currentState === 'ready' && !isGenerating && !isSynthesizing && !currentAnalysing;
+  // Step 2 clickable when in Review step (hasSynthesizedCurrent && currentState === 'ready')
+  const canClickStep2 = hasSynthesizedCurrent && currentState === 'ready' && !isGenerating && !isSynthesizing && !currentAnalysing;
 
   function handleStep1Click() {
     if (!canClickStep1) return;
@@ -211,12 +225,15 @@ export function PromptConsole({
   const step1State = currentState === 'idle' || currentState === 'analysing'
     ? 'active'
     : 'completed';
-  const step2State = currentState === 'ready' && !isGenerating && !hasGeneratedCurrent
+  const step2State = currentState === 'ready' && !hasSynthesizedCurrent
     ? 'active'
     : currentState === 'ready'
     ? 'completed'
     : '';
-  const step3State = isGenerating || hasGeneratedCurrent ? 'active' : '';
+  const step3State = hasSynthesizedCurrent && !isGenerating
+    ? 'active'
+    : (isGenerating ? 'completed' : '');
+  const step4State = isGenerating ? 'active' : '';
 
   return (
     <section className="prompt-console" aria-label="Prompt Console">
@@ -229,7 +246,7 @@ export function PromptConsole({
               type="button"
               className="btn--ghost-danger"
               onClick={handleStartOver}
-              disabled={isGenerating || analysing || analysingVideo}
+              disabled={isGenerating || isSynthesizing || analysing || analysingVideo}
               aria-label="Start over"
             >
               ✕ Start over
@@ -247,7 +264,7 @@ export function PromptConsole({
                 id={`mode-toggle-${value}`}
                 className={`mode-toggle__btn${mode === value ? ' mode-toggle__btn--active' : ''}`}
                 onClick={() => handleModeSwitch(value)}
-                disabled={isGenerating || analysing || analysingVideo}
+                disabled={isGenerating || isSynthesizing || analysing || analysingVideo}
                 aria-pressed={mode === value}
               >
                 {label}
@@ -278,27 +295,33 @@ export function PromptConsole({
 
         <span className="stepper-divider" />
 
-        {/* Step 2: Edit — clickable when in Generate and attributes exist */}
+        {/* Step 2: Edit Attributes — clickable when in Review and attributes exist */}
         {canClickStep2 ? (
           <button
             type="button"
             className={`stepper-step stepper-step--${step2State} stepper-step--clickable`}
             onClick={handleStep2Click}
-            title="Back to Edit"
-            aria-label="Go back to Edit step"
+            title="Back to Edit Attributes"
+            aria-label="Go back to Edit Attributes step"
           >
-            2. Edit
+            2. Edit Attributes
           </button>
         ) : (
           <span className={`stepper-step${step2State ? ` stepper-step--${step2State}` : ''}`}>
-            2. Edit
+            2. Edit Attributes
           </span>
         )}
 
         <span className="stepper-divider" />
 
         <span className={`stepper-step${step3State ? ` stepper-step--${step3State}` : ''}`}>
-          3. Generate
+          3. Review Prompt
+        </span>
+
+        <span className="stepper-divider" />
+
+        <span className={`stepper-step${step4State ? ` stepper-step--${step4State}` : ''}`}>
+          4. Generate
         </span>
       </div>
 
@@ -324,7 +347,7 @@ export function PromptConsole({
                     onKeyDown={handleKeyDown}
                     placeholder="Describe the image you want to generate… Be as brief or detailed as you like. The AI will fill in the missing pieces."
                     rows={5}
-                    disabled={isGenerating}
+                    disabled={isGenerating || isSynthesizing}
                     aria-describedby={validationError ? 'prompt-error' : 'prompt-hint'}
                   />
                   {currentHistory.length > 0 && (
@@ -336,7 +359,7 @@ export function PromptConsole({
                         aria-expanded={historyOpen}
                         aria-label="Show prompt history"
                         title="Recent prompts"
-                        disabled={isGenerating}
+                        disabled={isGenerating || isSynthesizing}
                       >
                         ▾
                       </button>
@@ -382,7 +405,7 @@ export function PromptConsole({
                 id="analyse-btn"
                 type="submit"
                 className="btn btn--primary btn--large"
-                disabled={isGenerating || isPromptEmpty}
+                disabled={isGenerating || isSynthesizing || isPromptEmpty}
                 aria-busy={false}
                 title={isPromptEmpty ? 'Enter a description to continue' : undefined}
               >
@@ -404,9 +427,10 @@ export function PromptConsole({
               attributes={attributes}
               rawDescription={rawDescription}
               onUpdate={handleUpdateImageAttribute}
-              onGenerate={handleGenerateImage}
+              onSynthesize={handleSynthesizeImage}
               onReanalyse={handleReanalyseImage}
-              isGenerating={isGenerating}
+              isGenerating={isGenerating || isSynthesizing}
+              finalPrompt={finalPrompt}
             />
           )}
         </>
@@ -434,7 +458,7 @@ export function PromptConsole({
                     onKeyDown={handleKeyDown}
                     placeholder="Describe the video scene you want to generate… The AI will extract Overall, Camera, and Audio elements."
                     rows={5}
-                    disabled={isGenerating}
+                    disabled={isGenerating || isSynthesizing}
                     aria-describedby={validationError ? 'prompt-error' : 'prompt-hint'}
                   />
                   {currentHistory.length > 0 && (
@@ -446,7 +470,7 @@ export function PromptConsole({
                         aria-expanded={historyOpen}
                         aria-label="Show prompt history"
                         title="Recent prompts"
-                        disabled={isGenerating}
+                        disabled={isGenerating || isSynthesizing}
                       >
                         ▾
                       </button>
@@ -492,7 +516,7 @@ export function PromptConsole({
                 id="analyse-video-btn"
                 type="submit"
                 className="btn btn--primary btn--large"
-                disabled={isGenerating || isPromptEmpty}
+                disabled={isGenerating || isSynthesizing || isPromptEmpty}
                 aria-busy={false}
                 title={isPromptEmpty ? 'Enter a description to continue' : undefined}
               >
@@ -514,9 +538,10 @@ export function PromptConsole({
               attributes={videoAttributes}
               rawDescription={rawVideoDescription}
               onUpdate={handleUpdateVideoAttribute}
-              onGenerate={handleGenerateVideo}
+              onSynthesize={handleSynthesizeVideo}
               onReanalyse={handleReanalyseVideo}
-              isGenerating={isGenerating}
+              isGenerating={isGenerating || isSynthesizing}
+              finalPrompt={finalPrompt}
             />
           )}
         </>

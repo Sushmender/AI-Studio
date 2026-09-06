@@ -126,9 +126,9 @@ function GalleryLoadingCard({ job }) {
 }
 
 function GalleryCard({ item, onOpen }) {
-  const { result_url, mode, raw_prompt, enhanced_prompt, job_id } = item;
+  const { result_url, mode, raw_prompt, final_prompt, job_id } = item;
   const isVideo = mode === 'video';
-  const displayPrompt = enhanced_prompt || raw_prompt || '';
+  const displayPrompt = final_prompt || raw_prompt || '';
   const snippet = displayPrompt.slice(0, 80) + (displayPrompt.length > 80 ? '…' : '');
 
   return (
@@ -179,7 +179,7 @@ function GalleryCard({ item, onOpen }) {
   );
 }
 
-export function ResultGallery({ items, loading, activeJob }) {
+export function ResultGallery({ items, loading, activeJob, promptPanel }) {
   const [lightboxItem, setLightboxItem] = useState(null);
 
   if (loading) {
@@ -199,6 +199,8 @@ export function ResultGallery({ items, loading, activeJob }) {
           <span className="result-gallery__count">{items.length}</span>
         )}
       </h2>
+
+      {promptPanel}
 
       {items.length === 0 && !activeJob ? (
         <div className="result-gallery__empty">

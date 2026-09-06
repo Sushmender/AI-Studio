@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from backend.config import get_settings
 from backend.utils.logger import configure_logging, get_logger
-from backend.routes import generate, jobs, health, analyse
+from backend.routes import generate, jobs, health, analyse, synthesize
 from backend.services.job_store import job_store
 
 # ── Boot ─────────────────────────────────────────────────────────────────────
@@ -103,6 +103,7 @@ app.include_router(generate.router)
 app.include_router(jobs.router)
 app.include_router(health.router)
 app.include_router(analyse.router)
+app.include_router(synthesize.router)
 
 
 @app.get("/", tags=["root"])

@@ -20,7 +20,7 @@
  *   attributes       — { subject, action, location, composition, style }
  *   rawDescription   — the original user text (for the collapsible)
  *   onUpdate(k,v)    — called when user edits a field
- *   onGenerate()     — called when user clicks Generate Image
+ *   onSynthesize()   — called when user clicks Synthesize Prompt
  *   onReanalyse()    — called when user clicks Re-analyse (resets to textarea)
  *   isGenerating     — boolean (disables Generate button)
  */
@@ -167,7 +167,7 @@ function AttributeRow({ meta, value, onUpdate }) {
 
 // ── Collapsible original description ────────────────────────────────────────
 
-function OriginalDescription({ text }) {
+function OriginalDescription({ text, label = "Your description" }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="original-desc">
@@ -178,7 +178,7 @@ function OriginalDescription({ text }) {
         aria-expanded={open}
       >
         <span className="original-desc__arrow">{open ? '▾' : '▸'}</span>
-        <span>Your description</span>
+        <span>{label}</span>
       </button>
       {open && (
         <p className="original-desc__text">{text}</p>
@@ -203,15 +203,16 @@ export function ImageAttributeEditor({
   attributes,
   rawDescription,
   onUpdate,
-  onGenerate,
+  onSynthesize,
   onReanalyse,
   isGenerating,
+  finalPrompt,
 }) {
   const [copied, setCopied] = useState(false);
 
-  const handleGenerate = useCallback(() => {
-    if (!isGenerating) onGenerate();
-  }, [isGenerating, onGenerate]);
+  const handleSynthesize = useCallback(() => {
+    if (!isGenerating) onSynthesize();
+  }, [isGenerating, onSynthesize]);
 
   function handleCopy() {
     const text = ATTRIBUTE_META
@@ -281,20 +282,26 @@ export function ImageAttributeEditor({
 
         {/* Primary CTA — visually separated by the increased gap */}
         <button
-          id="generate-image-btn"
+          id="synthesize-image-btn"
           type="button"
           className="btn btn--primary btn--large attr-editor__generate-btn"
-          onClick={handleGenerate}
+          onClick={handleSynthesize}
           disabled={isGenerating}
           aria-busy={isGenerating}
         >
-          {isGenerating ? '⏳ Generating…' : (
+          {isGenerating ? '⏳ Synthesizing…' : (
             <>
-              ✦ Generate image <span className="attr-editor__estimate">~5s</span>
+              ✦ Synthesize prompt <span className="attr-editor__estimate">~2s</span>
             </>
           )}
         </button>
       </div>
+
+      {finalPrompt && (
+        <div style={{ marginTop: '16px' }}>
+          <OriginalDescription text={finalPrompt} label="Final prompt" />
+        </div>
+      )}
     </div>
   );
 }

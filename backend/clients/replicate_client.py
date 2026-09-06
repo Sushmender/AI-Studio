@@ -14,7 +14,7 @@ async def generate_video(prompt: str, aspect_ratio: str = "16:9", duration: int 
     settings = get_settings()
     
     if settings.mock_generation_apis:
-        logger.info("mock_replicate_generation", prompt=prompt)
+        logger.info("mock_replicate_generation", prompt_preview=prompt[:80])
         await asyncio.sleep(4)  # Simulate some processing time
         return {"url": "https://replicate.delivery/pbxt/mock_video.mp4"}
 

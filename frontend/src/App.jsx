@@ -18,11 +18,12 @@
  *   6. Gallery persists across refreshes via useGallery (localStorage)
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { generateImage, generateVideo } from './api/client';
+import { generateImage, generateVideo, synthesizePrompt } from './api/client';
 import { useJobPolling } from './hooks/useJobPolling';
 import { useGallery } from './hooks/useGallery';
 import { useToast } from './hooks/useToast';
 import { PromptConsole } from './components/PromptConsole';
+import { FinalPromptPanel } from './components/FinalPromptPanel';
 import { JobStatusStrip } from './components/JobStatusStrip';
 import { GeneratingState } from './components/GeneratingState';
 import { ErrorState } from './components/ErrorState';
@@ -37,6 +38,11 @@ export default function App() {
   const [activeMode, setActiveMode] = useState('image');
   const [submitError, setSubmitError] = useState(null);   // error from the POST call itself
   const [lastSubmit, setLastSubmit] = useState(null);     // { prompt, mode } for retry
+  const [isSynthesizing, setIsSynthesizing] = useState(false);
+  const [synthesizedPrompt, setSynthesizedPrompt] = useState(null);
+  const [synthesizedMode, setSynthesizedMode] = useState(null); // 'image' or 'video'
+  const [editedFinalPrompt, setEditedFinalPrompt] = useState('');
+  const [lastSynthesizeRequest, setLastSynthesizeRequest] = useState(null); // to pass attributes on generate
 
   const gallery = useGallery();
   const { toasts, showToast, dismissToast } = useToast();
@@ -75,7 +81,7 @@ export default function App() {
         ...result,
         job_id: activeJobId,
         raw_prompt: activeJob?.raw_prompt,
-        enhanced_prompt: activeJob?.enhanced_prompt,
+        final_prompt: activeJob?.final_prompt,
         created_at: Date.now(),
       });
       if (lastToastedJobId.current !== activeJobId) {
@@ -90,13 +96,13 @@ export default function App() {
     }
   }, [status, result, activeJobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update enhanced_prompt in jobs[] when polling returns it
+  // Update final_prompt in jobs[] when polling returns it
   useEffect(() => {
     if (!activeJobId) return;
-    if (result?.enhanced_prompt) {
+    if (result?.final_prompt) {
       setJobs((prev) =>
         prev.map((j) =>
-          j.job_id === activeJobId ? { ...j, enhanced_prompt: result.enhanced_prompt } : j,
+          j.job_id === activeJobId ? { ...j, final_prompt: result.final_prompt } : j,
         ),
       );
     }
@@ -109,18 +115,19 @@ export default function App() {
    * attributes: { subject, action, location, composition, style }
    */
   const handleSubmitImage = useCallback(
-    async ({ attributes }) => {
+    async ({ attributes, prompt = '', skip_enhance = false }) => {
       setSubmitError(null);
-      setLastSubmit({ type: 'image', attributes });
+      setLastSubmit({ type: 'image', attributes, prompt, skip_enhance });
+      setSynthesizedPrompt(null);
 
       try {
-        const jobResp = await generateImage('', { attributes });
+        const jobResp = await generateImage(prompt, { attributes, skip_enhance });
 
         const newJob = {
           job_id: jobResp.job_id,
           mode: 'image',
-          raw_prompt: `Structured: ${attributes.subject}`,
-          enhanced_prompt: null,
+          raw_prompt: skip_enhance ? prompt : `Structured: ${attributes.subject}`,
+          final_prompt: null,
           status: 'queued',
           elapsedMs: 0,
           estimatedWait: null,
@@ -145,18 +152,19 @@ export default function App() {
    * Video submission — structured 3-stage pipeline.
    */
   const handleSubmitVideo = useCallback(
-    async ({ video_attributes }) => {
+    async ({ video_attributes, prompt = '', skip_enhance = false }) => {
       setSubmitError(null);
-      setLastSubmit({ type: 'video', video_attributes });
+      setLastSubmit({ type: 'video', video_attributes, prompt, skip_enhance });
+      setSynthesizedPrompt(null);
 
       try {
-        const jobResp = await generateVideo('', { video_attributes });
+        const jobResp = await generateVideo(prompt, { video_attributes, skip_enhance });
 
         const newJob = {
           job_id: jobResp.job_id,
           mode: 'video',
-          raw_prompt: video_attributes ? video_attributes.subject : 'Video Generation',
-          enhanced_prompt: null,
+          raw_prompt: skip_enhance ? prompt : (video_attributes ? video_attributes.subject : 'Video Generation'),
+          final_prompt: null,
           status: 'queued',
           elapsedMs: 0,
           estimatedWait: jobResp.estimated_wait_seconds
@@ -185,6 +193,57 @@ export default function App() {
     if (lastSubmit.type === 'image') handleSubmitImage(lastSubmit);
     else handleSubmitVideo(lastSubmit);
   }, [lastSubmit, handleSubmitImage, handleSubmitVideo]);
+
+  const handleSynthesizeImage = useCallback(async ({ attributes, prompt = '' }) => {
+    setIsSynthesizing(true);
+    setSubmitError(null);
+    setActiveMode('image');
+    setLastSynthesizeRequest({ attributes, prompt });
+    setLastSubmit(null);
+    
+    try {
+      const res = await synthesizePrompt({ mode: 'image', attributes, prompt });
+      setSynthesizedPrompt(res.final_prompt);
+      setEditedFinalPrompt(res.final_prompt);
+      setSynthesizedMode('image');
+    } catch (err) {
+      setSubmitError({
+        errorType: err.errorType ?? 'generic_failed',
+        message: err.userMessage ?? err.message,
+        provider: err.provider ?? '',
+      });
+    } finally {
+      setIsSynthesizing(false);
+    }
+  }, []);
+
+  const handleSynthesizeVideo = useCallback(async ({ video_attributes, prompt = '' }) => {
+    setIsSynthesizing(true);
+    setSubmitError(null);
+    setActiveMode('video');
+    setLastSynthesizeRequest({ video_attributes, prompt });
+    setLastSubmit(null);
+    
+    try {
+      const res = await synthesizePrompt({ mode: 'video', video_attributes, prompt });
+      setSynthesizedPrompt(res.final_prompt);
+      setEditedFinalPrompt(res.final_prompt);
+      setSynthesizedMode('video');
+    } catch (err) {
+      setSubmitError({
+        errorType: err.errorType ?? 'generic_failed',
+        message: err.userMessage ?? err.message,
+        provider: err.provider ?? '',
+      });
+    } finally {
+      setIsSynthesizing(false);
+    }
+  }, []);
+
+  const handleBackToEdit = useCallback(() => {
+    setSynthesizedPrompt(null);
+    setEditedFinalPrompt('');
+  }, []);
 
   // ── Derived state ───────────────────────────────────────────────────────────
 
@@ -231,10 +290,15 @@ export default function App() {
           {/* ── Left column: console + status ── */}
           <div className="app-layout__left">
             <PromptConsole
-              onSubmitImage={handleSubmitImage}
-              onSubmitVideo={handleSubmitVideo}
+              onSynthesizeImage={handleSynthesizeImage}
+              onSynthesizeVideo={handleSynthesizeVideo}
+              onBackToEdit={handleBackToEdit}
+              isSynthesizing={isSynthesizing}
               isGenerating={isGenerating}
+              finalPrompt={lastSubmit?.prompt || null}
             />
+
+
 
             {/* Generating animation */}
             {isGenerating && (
@@ -265,6 +329,51 @@ export default function App() {
               items={gallery.items}
               loading={gallery.loading}
               activeJob={isGenerating ? activeJob : null}
+              promptPanel={
+                (isSynthesizing || synthesizedPrompt || (activeJob && activeJob.final_prompt)) ? (
+                  <div className="prompt-panel-wrapper">
+                    <FinalPromptPanel
+                      activeJob={
+                        isGenerating
+                          ? activeJob
+                          : {
+                              status: isSynthesizing ? 'generating' : 'synthesized',
+                              final_prompt: synthesizedPrompt,
+                              model: synthesizedMode === 'image' ? 'fal-ai/flux/dev' : 'luma/ray-flash-2-720p',
+                              provider: synthesizedMode === 'image' ? 'fal.ai' : 'replicate',
+                            }
+                      }
+                      onPromptChange={(val) => setEditedFinalPrompt(val)}
+                    />
+                    {synthesizedPrompt && !isGenerating && (
+                      <div className="prompt-panel-generate-btn" style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          className="btn btn--primary btn--large"
+                          onClick={() => {
+                            const isEdited = editedFinalPrompt !== synthesizedPrompt;
+                            if (synthesizedMode === 'image') {
+                              handleSubmitImage({
+                                attributes: isEdited ? null : lastSynthesizeRequest?.attributes,
+                                prompt: editedFinalPrompt,
+                                skip_enhance: isEdited
+                              });
+                            } else {
+                              handleSubmitVideo({
+                                video_attributes: isEdited ? null : lastSynthesizeRequest?.video_attributes,
+                                prompt: editedFinalPrompt,
+                                skip_enhance: isEdited
+                              });
+                            }
+                          }}
+                        >
+                          {synthesizedMode === 'image' ? '🖼 Generate Image' : '🎬 Generate Video'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : null
+              }
             />
           </div>
 

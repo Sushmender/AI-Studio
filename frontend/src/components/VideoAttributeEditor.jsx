@@ -27,7 +27,7 @@
  *   attributes       — the 10 VideoAttributes fields
  *   rawDescription   — original user text (for collapsible)
  *   onUpdate(k,v)    — called when user edits a field inline
- *   onGenerate()     — called when user clicks Generate Video
+ *   onSynthesize()   — called when user clicks Synthesize Prompt
  *   onReanalyse()    — called when user clicks Re-analyse
  *   isGenerating     — boolean (disables Generate button)
  */
@@ -168,7 +168,7 @@ function VideoAttributeRow({ meta, value, onUpdate, muted = false }) {
 
 // ── Collapsible original description ─────────────────────────────────────────
 
-function OriginalDescription({ text }) {
+function OriginalDescription({ text, label = "Your description" }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="original-desc">
@@ -179,7 +179,7 @@ function OriginalDescription({ text }) {
         aria-expanded={open}
       >
         <span className="original-desc__arrow">{open ? '▾' : '▸'}</span>
-        <span>Your description</span>
+        <span>{label}</span>
       </button>
       {open && <p className="original-desc__text">{text}</p>}
     </div>
@@ -256,15 +256,16 @@ export function VideoAttributeEditor({
   attributes,
   rawDescription,
   onUpdate,
-  onGenerate,
+  onSynthesize,
   onReanalyse,
   isGenerating,
+  finalPrompt,
 }) {
   const [copied, setCopied] = useState(false);
 
-  const handleGenerate = useCallback(() => {
-    if (!isGenerating) onGenerate();
-  }, [isGenerating, onGenerate]);
+  const handleSynthesize = useCallback(() => {
+    if (!isGenerating) onSynthesize();
+  }, [isGenerating, onSynthesize]);
 
   function handleCopy() {
     const lines = ATTRIBUTE_GROUPS.flatMap((g) => [
@@ -327,20 +328,26 @@ export function VideoAttributeEditor({
 
         {/* Primary CTA — visually separated by the increased gap */}
         <button
-          id="generate-video-structured-btn"
+          id="synthesize-video-structured-btn"
           type="button"
           className="btn btn--primary btn--large attr-editor__generate-btn"
-          onClick={handleGenerate}
+          onClick={handleSynthesize}
           disabled={isGenerating}
           aria-busy={isGenerating}
         >
-          {isGenerating ? '⏳ Generating…' : (
+          {isGenerating ? '⏳ Synthesizing…' : (
             <>
-              🎬 Generate video <span className="attr-editor__estimate">~2-5 min</span>
+              🎬 Synthesize prompt <span className="attr-editor__estimate">~2s</span>
             </>
           )}
         </button>
       </div>
+
+      {finalPrompt && (
+        <div style={{ marginTop: '16px' }}>
+          <OriginalDescription text={finalPrompt} label="Final prompt" />
+        </div>
+      )}
     </div>
   );
 }

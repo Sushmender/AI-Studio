@@ -110,8 +110,8 @@ export function Lightbox({ item, onClose }) {
 
   if (!item) return null;
 
-  const { result_url, mode, raw_prompt, enhanced_prompt, created_at } = item;
-  const displayPrompt = enhanced_prompt || raw_prompt || '';
+  const { result_url, mode, raw_prompt, final_prompt, created_at } = item;
+  const displayPrompt = final_prompt || raw_prompt || '';
   const isVideo = mode === 'video';
 
   return (

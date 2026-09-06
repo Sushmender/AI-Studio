@@ -120,6 +120,7 @@ export async function generateImage(prompt = '', opts = {}) {
       width: opts.width ?? 1024,
       height: opts.height ?? 1024,
       num_inference_steps: opts.num_inference_steps ?? 28,
+      skip_enhance: opts.skip_enhance ?? false,
     }),
   });
 }
@@ -152,6 +153,24 @@ export async function generateVideo(prompt = '', opts = {}) {
       video_attributes: opts.video_attributes ?? null,
       aspect_ratio: opts.aspect_ratio ?? '16:9',
       duration: opts.duration ?? 5,
+      skip_enhance: opts.skip_enhance ?? false,
+    }),
+  });
+}
+
+/**
+ * Synchronous endpoint to synthesize an image or video prompt.
+ * Used for the "Review Prompt" step before actual generation.
+ * @returns {Promise<{final_prompt: string}>}
+ */
+export async function synthesizePrompt(opts = {}) {
+  return request('/synthesize', {
+    method: 'POST',
+    body: JSON.stringify({
+      mode: opts.mode || 'image',
+      prompt: opts.prompt || '',
+      attributes: opts.attributes ?? null,
+      video_attributes: opts.video_attributes ?? null,
     }),
   });
 }

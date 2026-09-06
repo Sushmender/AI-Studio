@@ -36,7 +36,16 @@ async def _run_image_job(job_id: str, request: GenerateRequest) -> None:
     start = time.monotonic()
 
     # ── Prompt resolution: 3-stage pipeline vs legacy enhance ─────────────────
-    if request.attributes is not None:
+    if request.skip_enhance:
+        prompt_to_use = request.prompt
+        raw_prompt = request.prompt
+        logger.info("user_edited_prompt_used", prompt_preview=prompt_to_use[:80])
+        await job_store.update_job(
+            job_id,
+            raw_prompt=raw_prompt,
+            final_prompt=prompt_to_use,
+        )
+    elif request.attributes is not None:
         # Stage 2 of the structured pipeline:
         # Groq Call 2 — synthesize the user-confirmed attributes into an optimised prompt
         logger.info("image_job_synthesizing", subject=request.attributes.subject[:40])
@@ -47,7 +56,7 @@ async def _run_image_job(job_id: str, request: GenerateRequest) -> None:
             await job_store.update_job(
                 job_id,
                 raw_prompt=raw_prompt,
-                enhanced_prompt=synthesized,
+                final_prompt=synthesized,
             )
             logger.info("image_job_synthesized", prompt_preview=synthesized[:80])
         except Exception as e:
@@ -68,13 +77,13 @@ async def _run_image_job(job_id: str, request: GenerateRequest) -> None:
             await job_store.update_job(
                 job_id,
                 raw_prompt=raw_prompt,
-                enhanced_prompt=prompt_to_use,
+                final_prompt=prompt_to_use,
             )
     else:
         # Legacy path: enhance raw prompt via Groq
-        raw_prompt, enhanced_prompt = await enhance(request.prompt, "image")
-        await job_store.update_job(job_id, enhanced_prompt=enhanced_prompt)
-        prompt_to_use = enhanced_prompt if enhanced_prompt else raw_prompt
+        final_result = await enhance(request.prompt, "image")
+        await job_store.update_job(job_id, final_prompt=final_result.final_prompt)
+        prompt_to_use = final_result.final_prompt if final_result.final_prompt else final_result.raw_prompt
 
     # ── Stage 3: fal.ai generates the image ────────────────────────────────────
     try:
@@ -113,7 +122,16 @@ async def _run_video_job(job_id: str, request: GenerateRequest) -> None:
     start = time.monotonic()
 
     # ── Prompt resolution: 3-stage pipeline vs legacy enhance ─────────────────
-    if request.video_attributes is not None:
+    if request.skip_enhance:
+        prompt_to_use = request.prompt
+        raw_prompt = request.prompt
+        logger.info("user_edited_prompt_used", prompt_preview=prompt_to_use[:80])
+        await job_store.update_job(
+            job_id,
+            raw_prompt=raw_prompt,
+            final_prompt=prompt_to_use,
+        )
+    elif request.video_attributes is not None:
         # Stage 2 of the structured video pipeline:
         # Groq Call 2 — synthesize the user-confirmed 10 attributes into an optimised prompt
         logger.info("video_job_synthesizing", subject=request.video_attributes.subject[:40])
@@ -124,7 +142,7 @@ async def _run_video_job(job_id: str, request: GenerateRequest) -> None:
             await job_store.update_job(
                 job_id,
                 raw_prompt=raw_prompt,
-                enhanced_prompt=synthesized,
+                final_prompt=synthesized,
             )
             logger.info("video_job_synthesized", prompt_preview=synthesized[:80])
         except Exception as e:
@@ -147,13 +165,13 @@ async def _run_video_job(job_id: str, request: GenerateRequest) -> None:
             await job_store.update_job(
                 job_id,
                 raw_prompt=raw_prompt,
-                enhanced_prompt=prompt_to_use,
+                final_prompt=prompt_to_use,
             )
     else:
         # Legacy path: Groq enhance_prompt for video
-        raw_prompt, enhanced_prompt = await enhance(request.prompt, "video")
-        await job_store.update_job(job_id, enhanced_prompt=enhanced_prompt)
-        prompt_to_use = enhanced_prompt if enhanced_prompt else raw_prompt
+        final_result = await enhance(request.prompt, "video")
+        await job_store.update_job(job_id, final_prompt=final_result.final_prompt)
+        prompt_to_use = final_result.final_prompt if final_result.final_prompt else final_result.raw_prompt
 
     # ── Stage 3: Replicate generates the video ──────────────────────────────────
     try:

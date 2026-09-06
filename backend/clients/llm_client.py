@@ -3,14 +3,19 @@ llm_client.py — LLM Prompt Enhancement Client
 """
 import asyncio
 import json
+import re
 from typing import Any, Literal
 from groq import AsyncGroq, RateLimitError
 from backend.config import get_settings
 from backend.utils.logger import get_logger
 from backend.utils.retry import async_retry, RetryableError
-from backend.models.schemas import EnhancedPrompt, ImageAttributes, VideoAttributes
+from backend.models.schemas import FinalPrompt, ImageAttributes, VideoAttributes
 
 logger = get_logger(__name__)
+
+class PromptSynthesisError(Exception):
+    """Raised when prompt synthesis extraction fails after all stages."""
+    pass
 
 _FALLBACK_MODEL = "llama-3.1-8b-instant"
 
@@ -49,6 +54,7 @@ async def _chat_with_fallback(client: AsyncGroq, primary_model: str, timeout: fl
             "model": settings.openrouter_model,
             "messages": kwargs.get("messages", []),
             "temperature": kwargs.get("temperature", 0.7),
+            "response_format": {"type": "json_object"},
         }
         if "max_tokens" in kwargs:
             payload["max_tokens"] = kwargs["max_tokens"]
@@ -63,7 +69,7 @@ async def _chat_with_fallback(client: AsyncGroq, primary_model: str, timeout: fl
     else:
         try:
             return await asyncio.wait_for(
-                client.chat.completions.create(model=primary_model, **kwargs),
+                client.chat.completions.create(model=primary_model, response_format={"type": "json_object"}, **kwargs),
                 timeout=timeout,
             )
         except RateLimitError:
@@ -74,9 +80,53 @@ async def _chat_with_fallback(client: AsyncGroq, primary_model: str, timeout: fl
                 reason="quota_exceeded",
             )
             return await asyncio.wait_for(
-                client.chat.completions.create(model=_FALLBACK_MODEL, **kwargs),
+                client.chat.completions.create(model=_FALLBACK_MODEL, response_format={"type": "json_object"}, **kwargs),
                 timeout=timeout,
             )
+
+def strip_think_block(text: str) -> str:
+    """Strip <think>...</think> chain-of-thought block if present."""
+    text = text.strip()
+    if "<think>" in text:
+        end_think = text.find("</think>")
+        if end_think != -1:
+            text = text[end_think + 8:].strip()
+    return text
+
+
+def clean_text_prompt(text: str) -> str:
+    """
+    Clean the text prompt from conversational preamble and <think> blocks.
+    If the response ends with a quoted paragraph or contains it as a distinct block,
+    extract only the quoted paragraph and discard the reasoning before it.
+    """
+    text = strip_think_block(text)
+    
+    import re
+    # Remove markdown code blocks if the LLM wrapped it in ```
+    md_match = re.search(r'```(?:[a-zA-Z]*\n)?(.*?)```', text, re.DOTALL)
+    if md_match:
+        text = md_match.group(1).strip()
+        
+    # Extract quoted text if the LLM wrapped the whole response in quotes
+    # or if it ends with a quoted paragraph.
+    # Look for quotes that contain more than just a few words, typically at the end.
+    quote_match = re.search(r'["\'](.*?)[."\']*\s*$', text, re.DOTALL)
+    if quote_match:
+        extracted = quote_match.group(1).strip()
+        if len(extracted.split()) > 10:
+            return extracted
+
+    # Fallback: if there's a preamble like "Here is the prompt:\n\n"
+    # or "Draft:", we can split by double newline or 'Draft:' and take the last part.
+    if "Draft:" in text:
+        return text.split("Draft:")[-1].strip().strip('"\'')
+        
+    parts = [p.strip() for p in text.split('\n\n') if p.strip()]
+    if len(parts) > 1 and len(parts[0].split()) < 30 and any(kw in parts[0].lower() for kw in ["prompt", "here", "draft", "we", "count"]):
+        text = "\n\n".join(parts[1:])
+        
+    return text.strip('"\'').strip()
 
 
 def _extract_json(text: str) -> dict:
@@ -86,15 +136,8 @@ def _extract_json(text: str) -> dict:
     text = text.strip()
     
     # Strip <think>...</think> chain-of-thought block if present (common with Qwen models)
-    if "<think>" in text:
-        end_think = text.find("</think>")
-        if end_think != -1:
-            text = text[end_think + 8:].strip()
-        else:
-            # Malformed or truncated think block, try to just clear everything before the last }
-            # Wait, if it's truncated, the JSON isn't even there. But let's fallback cleanly.
-            pass
-            
+    text = strip_think_block(text)
+    
     # Try to find JSON boundaries
     start_idx = text.find("{")
     end_idx = text.rfind("}")
@@ -108,13 +151,70 @@ def _extract_json(text: str) -> dict:
         logger.error("json_extraction_failed", raw_text=text, error=str(e))
         raise e
 
+async def _get_final_prompt_with_fallback(client, primary_model, timeout, messages, temperature, max_tokens) -> str:
+    """Execute LLM call, parse JSON using multi-stage extraction."""
+    for attempt in range(2):
+        try:
+            completion = await _chat_with_fallback(
+                client,
+                primary_model=primary_model,
+                timeout=timeout,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            raw_text = completion.choices[0].message.content
+        except Exception as e:
+            logger.warning("llm_call_failed", attempt=attempt, error=str(e))
+            continue
+            
+        if not raw_text:
+            continue
+            
+        raw_text = strip_think_block(raw_text).strip()
+            
+        # Stage 1: Attempt json.loads() on the raw response
+        try:
+            data = json.loads(raw_text)
+            if "final_prompt" in data:
+                logger.info("synthesize_prompt_done", extraction_method="json_direct")
+                return data["final_prompt"].strip()
+        except json.JSONDecodeError:
+            pass
+
+        # Stage 2: Attempt to locate a JSON object substring using regex
+        try:
+            match = re.search(r'\{[^{}]*"final_prompt"[^{}]*\}', raw_text, re.DOTALL | re.IGNORECASE)
+            if match:
+                data = json.loads(match.group(0))
+                if "final_prompt" in data:
+                    logger.info("synthesize_prompt_done", extraction_method="json_regex")
+                    return data["final_prompt"].strip()
+        except json.JSONDecodeError:
+            pass
+
+        # Stage 3: Attempt to extract the LAST quoted string (>= 40 chars)
+        try:
+            quotes = re.findall(r'"([^"]{40,})"', raw_text)
+            if quotes:
+                logger.info("synthesize_prompt_done", extraction_method="quote_fallback")
+                return quotes[-1].strip()
+        except Exception:
+            pass
+
+        logger.warning("json_extraction_failed_attempt", attempt=attempt, raw_text=raw_text)
+        
+    # Stage 4: If ALL THREE stages fail across all attempts
+    logger.error("synthesize_prompt_failed", raw_text=raw_text if 'raw_text' in locals() else "No response")
+    raise PromptSynthesisError("Prompt synthesis failed, please retry.")
+
 SYSTEM_PROMPTS = {
-    "image": "You are a world-class image prompt engineer. Rewrite the user's prompt to be richly descriptive: include lighting, composition, style, color palette, and mood. Keep it under 200 words. Return only the enhanced prompt, no explanation.",
-    "video": "You are a world-class video prompt engineer. Rewrite the user's prompt to describe motion, pacing, camera movement, scene transitions, and visual atmosphere. Keep it under 150 words. Return only the enhanced prompt, no explanation."
+    "image": 'You are a world-class image prompt engineer. Rewrite the user\'s prompt to be richly descriptive: include lighting, composition, style, color palette, and mood. Keep it under 200 words.\n\nOutput ONLY valid JSON: {"final_prompt": "your descriptive paragraph here"}. Do not include any explanation, reasoning, word counts, drafts, or text outside the JSON object. Your entire response must be parseable by json.loads().',
+    "video": 'You are a world-class video prompt engineer. Rewrite the user\'s prompt to describe motion, pacing, camera movement, scene transitions, and visual atmosphere. Keep it under 150 words.\n\nOutput ONLY valid JSON: {"final_prompt": "your descriptive paragraph here"}. Do not include any explanation, reasoning, word counts, drafts, or text outside the JSON object. Your entire response must be parseable by json.loads().'
 }
 
 @async_retry(max_attempts=2, backoff_base=1.5)
-async def enhance_prompt(raw: str, mode: Literal["image", "video"]) -> EnhancedPrompt:
+async def enhance_prompt(raw: str, mode: Literal["image", "video"]) -> FinalPrompt:
     settings = get_settings()
 
     try:
@@ -123,8 +223,8 @@ async def enhance_prompt(raw: str, mode: Literal["image", "video"]) -> EnhancedP
         
         system_prompt = SYSTEM_PROMPTS.get(mode, SYSTEM_PROMPTS["image"])
         
-        completion = await _chat_with_fallback(
-            client,
+        enhanced_text = await _get_final_prompt_with_fallback(
+            client=client,
             primary_model=settings.groq_model,
             timeout=settings.groq_timeout,
             messages=[
@@ -135,11 +235,9 @@ async def enhance_prompt(raw: str, mode: Literal["image", "video"]) -> EnhancedP
             max_tokens=300,
         )
         
-        enhanced_text = completion.choices[0].message.content.strip()
-        
-        return EnhancedPrompt(
+        return FinalPrompt(
             raw_prompt=raw,
-            enhanced_prompt=enhanced_text
+            final_prompt=enhanced_text
         )
         
     except asyncio.TimeoutError as e:
@@ -233,7 +331,8 @@ Rules:
 - Be vivid, specific, and rich with sensory detail.
 - The prompt should read as a single flowing paragraph.
 - Keep it between 60–120 words.
-- Do NOT include any explanation, preamble, or labels — return ONLY the prompt text.
+
+Output ONLY valid JSON: {"final_prompt": "your descriptive paragraph here"}. Do not include any explanation, reasoning, word counts, drafts, or text outside the JSON object. Your entire response must be parseable by json.loads().
 """
 
 
@@ -251,8 +350,8 @@ async def synthesize_image_prompt(attributes: ImageAttributes) -> str:
     )
 
     try:
-        completion = await _chat_with_fallback(
-            client,
+        return await _get_final_prompt_with_fallback(
+            client=client,
             primary_model=settings.groq_model,
             timeout=settings.groq_timeout,
             messages=[
@@ -262,7 +361,6 @@ async def synthesize_image_prompt(attributes: ImageAttributes) -> str:
             temperature=0.7,
             max_tokens=200,
         )
-        return completion.choices[0].message.content.strip()
 
     except asyncio.TimeoutError as e:
         logger.error("groq_synthesize_timeout", error=str(e))
@@ -373,7 +471,8 @@ Rules:
 - Be vivid, specific, cinematic, and motion-aware.
 - The prompt should read as a single flowing paragraph describing the video.
 - Keep it between 80–150 words.
-- Do NOT include labels, section headers, or any explanation — return ONLY the prompt text.
+
+Output ONLY valid JSON: {"final_prompt": "your descriptive paragraph here"}. Do not include any explanation, reasoning, word counts, drafts, or text outside the JSON object. Your entire response must be parseable by json.loads().
 """
 
 
@@ -399,8 +498,8 @@ async def synthesize_video_prompt(attributes: VideoAttributes) -> str:
     )
 
     try:
-        completion = await _chat_with_fallback(
-            client,
+        return await _get_final_prompt_with_fallback(
+            client=client,
             primary_model=settings.groq_model,
             timeout=settings.groq_timeout,
             messages=[
@@ -410,7 +509,6 @@ async def synthesize_video_prompt(attributes: VideoAttributes) -> str:
             temperature=0.7,
             max_tokens=250,
         )
-        return completion.choices[0].message.content.strip()
 
     except asyncio.TimeoutError as e:
         logger.error("groq_video_synthesize_timeout", error=str(e))

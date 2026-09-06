@@ -37,7 +37,7 @@ function writeStoredEntries(entries) {
 }
 
 export function useGallery() {
-  // Each item: { job_id, result_url, mode, raw_prompt, enhanced_prompt, latency_ms, created_at }
+  // Each item: { job_id, result_url, mode, raw_prompt, final_prompt, latency_ms, created_at }
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 

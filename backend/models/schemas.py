@@ -40,6 +40,7 @@ class GenerateRequest(BaseModel):
     # Video-specific (optional)
     aspect_ratio: str = Field(default="16:9", pattern=r"^\d+:\d+$")
     duration: int = Field(default=5, ge=1, le=20, description="Video duration in seconds")
+    skip_enhance: bool = Field(default=False, description="Bypass LLM enhancement and use prompt directly")
 
 
 # ── Internal job record ───────────────────────────────────────────────────────
@@ -48,7 +49,7 @@ class JobRecord(BaseModel):
     job_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     mode: GenerationMode
     raw_prompt: str
-    enhanced_prompt: Optional[str] = None
+    final_prompt: Optional[str] = None
     status: JobStatus = JobStatus.queued
     provider: str = ""
     model: str = ""
@@ -62,9 +63,9 @@ class JobRecord(BaseModel):
     estimated_wait_seconds: Optional[int] = None  # for video jobs
 
 
-class EnhancedPrompt(BaseModel):
+class FinalPrompt(BaseModel):
     raw_prompt: str
-    enhanced_prompt: str
+    final_prompt: str
 
 
 # ── Image Attribute Analysis ──────────────────────────────────────────────────
@@ -119,6 +120,21 @@ class VideoAnalyseResponse(BaseModel):
     raw_description: str
 
 
+# ── Synthesize Prompt ─────────────────────────────────────────────────────────
+
+class SynthesizeRequest(BaseModel):
+    """Request body for POST /synthesize."""
+    mode: GenerationMode
+    prompt: str = Field(default="", max_length=2000)
+    attributes: Optional[ImageAttributes] = None
+    video_attributes: Optional[VideoAttributes] = None
+
+
+class SynthesizeResponse(BaseModel):
+    """Response from POST /synthesize."""
+    final_prompt: str
+
+
 # ── Responses ─────────────────────────────────────────────────────────────────
 
 class JobResponse(BaseModel):
@@ -137,7 +153,7 @@ class JobStatusResponse(BaseModel):
     status: JobStatus
     mode: GenerationMode
     raw_prompt: str
-    enhanced_prompt: Optional[str] = None
+    final_prompt: Optional[str] = None
     provider: str
     model: str
     retry_count: int
@@ -154,7 +170,7 @@ class JobResultResponse(BaseModel):
     status: JobStatus
     mode: GenerationMode
     raw_prompt: str
-    enhanced_prompt: Optional[str] = None
+    final_prompt: Optional[str] = None
     result_url: Optional[str] = None
     latency_ms: Optional[float] = None
     retry_count: int = 0
