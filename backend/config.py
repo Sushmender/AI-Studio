@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # ── Model IDs ────────────────────────────────────────────────────────────
     fal_image_model: str = "fal-ai/flux/dev"
-    replicate_video_model: str = "luma/ray-flash-2-720p"
+    replicate_video_model: str = "wan-video/wan-2.2-i2v-fast"
     groq_model: str = "qwen/qwen3.8-27b"
     openrouter_model: str = "nvidia/nemotron-3-super-120b-a12b:free"
     

@@ -81,7 +81,7 @@ POST /generate/image|video  (with attributes in body)
 | Job store | In-memory `dict` + `asyncio.Lock` | POC scope; no persistence needed |
 | Prompt enhancement | Groq (free tier) | Zero inference cost for text analysis |
 | Image generation | fal.ai / FLUX Dev | High quality, fast (~5–15 s) |
-| Video generation | Replicate / Luma Ray Flash 2 720p | Best quality at 720p, reasonable latency |
+| Video generation | Replicate / Wan 2.2 i2v fast | Fast image-to-video generation |
 | Rate limiting | IP-based sliding window | Simple, stateless, no Redis needed |
 | Mock flag | `MOCK_GENERATION_APIS=True` | Separate image/video mocking from Groq |
 
@@ -134,7 +134,7 @@ All variables are loaded from `.env` at the project root. **Never commit real AP
 | `REPLICATE_API_TOKEN` | ✅ | — | Replicate API token |
 | `GROQ_API_KEY` | ✅ | — | Groq API key |
 | `FAL_IMAGE_MODEL` | — | `fal-ai/flux/dev` | fal.ai model ID |
-| `REPLICATE_VIDEO_MODEL` | — | `luma/ray-flash-2-720p` | Replicate model ID |
+| `REPLICATE_VIDEO_MODEL` | — | `wan-video/wan-2.2-i2v-fast` | Replicate model ID |
 | `GROQ_MODEL` | — | `qwen/qwen3.8-27b` | Groq model ID |
 | `MOCK_GENERATION_APIS` | — | `True` | Skip real fal.ai + Replicate calls (Groq always real) |
 | `FAL_TIMEOUT` | — | `30` | fal.ai request timeout (seconds) |

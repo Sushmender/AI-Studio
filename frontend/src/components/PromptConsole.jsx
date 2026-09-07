@@ -18,13 +18,14 @@
  *   isSynthesizing                      — disables actions while synthesizing
  *   isGenerating                        — disables all actions while a job runs
  */
-import { useState, useId, useRef } from 'react';
+import { useState, useId, useRef, useCallback, useEffect } from 'react';
 import { useImageAnalysis } from '../hooks/useImageAnalysis';
 import { useVideoAnalysis } from '../hooks/useVideoAnalysis';
 import { usePromptHistory } from '../hooks/usePromptHistory';
 import { ImageAttributeEditor } from './ImageAttributeEditor';
 import { VideoAttributeEditor } from './VideoAttributeEditor';
 import { AnalysingState } from './AnalysingState';
+import { ReferenceImageUploader } from './ReferenceImageUploader';
 
 const MAX_CHARS = 2000;
 
@@ -47,8 +48,25 @@ export function PromptConsole({
   const [hasSynthesizedImage, setHasSynthesizedImage] = useState(false);
   const [hasSynthesizedVideo, setHasSynthesizedVideo] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [referenceImage, setReferenceImage] = useState(null);
+  const [refImagePreviewUrl, setRefImagePreviewUrl] = useState(null);
   const promptId = useId();
   const historyRef = useRef(null);
+
+  // ── Reference image preview URL lifecycle ───────────────────────────────
+  useEffect(() => {
+    if (referenceImage) {
+      const url = URL.createObjectURL(referenceImage);
+      setRefImagePreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setRefImagePreviewUrl(null);
+    }
+  }, [referenceImage]);
+
+  const handleRefImageChange = useCallback((file) => {
+    setReferenceImage(file);
+  }, []);
 
   const { history, addToHistory } = usePromptHistory();
 
@@ -149,7 +167,7 @@ export function PromptConsole({
   // ── Video: Synthesize from attributes ──────────────────────────────────────
   function handleSynthesizeVideo() {
     setHasSynthesizedVideo(true);
-    onSynthesizeVideo({ video_attributes: videoAttributes, prompt });
+    onSynthesizeVideo({ video_attributes: videoAttributes, prompt, referenceImage });
   }
 
   // ── Video: Re-analyse (Step 1 back-nav) ──────────────────────────────────
@@ -193,6 +211,7 @@ export function PromptConsole({
     setPrompt('');
     setValidationError('');
     setHistoryOpen(false);
+    setReferenceImage(null);
   }
 
   function handlePickHistory(p) {
@@ -505,6 +524,14 @@ export function PromptConsole({
                 </div>
               </div>
 
+              {/* Reference Image Upload (optional, recommended) */}
+              <ReferenceImageUploader
+                referenceImage={referenceImage}
+                previewUrl={refImagePreviewUrl}
+                onImageChange={handleRefImageChange}
+                disabled={isGenerating || isSynthesizing}
+              />
+
               {/* Analysis error */}
               {videoAnalysisError && (
                 <p className="prompt-console__analyse-error" role="alert">
@@ -542,6 +569,9 @@ export function PromptConsole({
               onReanalyse={handleReanalyseVideo}
               isGenerating={isGenerating || isSynthesizing}
               finalPrompt={finalPrompt}
+              referenceImage={referenceImage}
+              refImagePreviewUrl={refImagePreviewUrl}
+              onRefImageChange={handleRefImageChange}
             />
           )}
         </>

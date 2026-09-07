@@ -117,7 +117,7 @@ async def _run_image_job(job_id: str, request: GenerateRequest) -> None:
 async def _run_video_job(job_id: str, request: GenerateRequest) -> None:
     bind_job_context(job_id=job_id, provider="replicate", model="luma/ray-flash-2-720p", mode="video")
     await job_store.update_job(job_id, status=JobStatus.generating, provider="replicate", model="luma/ray-flash-2-720p")
-    logger.info("video_job_started", prompt_length=len(request.prompt))
+    logger.info("video_job_started", prompt_length=len(request.prompt), has_reference_image=bool(request.reference_image_url))
 
     start = time.monotonic()
 
@@ -179,7 +179,8 @@ async def _run_video_job(job_id: str, request: GenerateRequest) -> None:
             prompt=prompt_to_use,
             aspect_ratio=request.aspect_ratio,
             duration=request.duration,
-            job_id=job_id
+            job_id=job_id,
+            image_url=request.reference_image_url,
         )
         latency_ms = (time.monotonic() - start) * 1000
         await job_store.update_job(

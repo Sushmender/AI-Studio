@@ -41,6 +41,8 @@ class GenerateRequest(BaseModel):
     aspect_ratio: str = Field(default="16:9", pattern=r"^\d+:\d+$")
     duration: int = Field(default=5, ge=1, le=20, description="Video duration in seconds")
     skip_enhance: bool = Field(default=False, description="Bypass LLM enhancement and use prompt directly")
+    # Video reference image (optional — enables image-to-video generation)
+    reference_image_url: Optional[str] = Field(default=None, description="Public URL of a reference image for video generation (image-to-video)")
 
 
 # ── Internal job record ───────────────────────────────────────────────────────
@@ -104,7 +106,7 @@ class VideoAttributes(BaseModel):
     camera_angles:    str = Field(..., description="Shot viewpoints — wide, close-up, bird's eye, dutch angle, etc.")
     camera_movements: str = Field(..., description="Dynamic experience — dolly, pan, handheld, steadicam, drone, etc.")
     lens_effects:     str = Field(..., description="How camera sees the world — bokeh, anamorphic, rack focus, distortion")
-    # GROUP: AUDIO (informational — luma/ray-flash-2-720p is visual-only)
+    # GROUP: AUDIO (informational — wan-video/wan-2.2-i2v-fast is visual-only)
     dialogue:         str = Field(..., description="Spoken words or voice-over (used to guide visual mood; not rendered as audio)")
     sound_effects:    str = Field(..., description="Distinct sounds in the scene (used to guide visual energy; not rendered as audio)")
 

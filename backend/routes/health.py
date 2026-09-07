@@ -52,7 +52,7 @@ async def _probe_replicate() -> ServiceHealth:
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get(
-                "https://api.replicate.com/v1/models/luma/ray-flash-2-720p",
+                "https://api.replicate.com/v1/models/wan-video/wan-2.2-i2v-fast",
                 headers={"Authorization": f"Bearer {settings.replicate_api_token}"},
             )
         latency = (time.monotonic() - start) * 1000
@@ -93,7 +93,7 @@ async def health_check():
     Probe all three AI providers in parallel and report reachability.
 
     - **fal.ai** — HEAD `https://fal.ai` with API key
-    - **Replicate** — GET model metadata for `luma/ray-flash-2-720p`
+    - **Replicate** — GET model metadata for `wan-video/wan-2.2-i2v-fast`
     - **Groq** — GET `/v1/models` with API key
 
     Results are **cached for 30 seconds** — safe to call frequently from the

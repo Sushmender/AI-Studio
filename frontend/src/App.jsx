@@ -18,7 +18,7 @@
  *   6. Gallery persists across refreshes via useGallery (localStorage)
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { generateImage, generateVideo, synthesizePrompt } from './api/client';
+import { generateImage, generateVideo, synthesizePrompt, uploadReferenceImage } from './api/client';
 import { useJobPolling } from './hooks/useJobPolling';
 import { useGallery } from './hooks/useGallery';
 import { useToast } from './hooks/useToast';
@@ -43,6 +43,9 @@ export default function App() {
   const [synthesizedMode, setSynthesizedMode] = useState(null); // 'image' or 'video'
   const [editedFinalPrompt, setEditedFinalPrompt] = useState('');
   const [lastSynthesizeRequest, setLastSynthesizeRequest] = useState(null); // to pass attributes on generate
+  const [referenceImageUrl, setReferenceImageUrl] = useState(null); // uploaded CDN URL
+  const [referenceImageFile, setReferenceImageFile] = useState(null); // File object for retry
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   const gallery = useGallery();
   const { toasts, showToast, dismissToast } = useToast();
@@ -152,13 +155,13 @@ export default function App() {
    * Video submission — structured 3-stage pipeline.
    */
   const handleSubmitVideo = useCallback(
-    async ({ video_attributes, prompt = '', skip_enhance = false }) => {
+    async ({ video_attributes, prompt = '', skip_enhance = false, reference_image_url = null }) => {
       setSubmitError(null);
-      setLastSubmit({ type: 'video', video_attributes, prompt, skip_enhance });
+      setLastSubmit({ type: 'video', video_attributes, prompt, skip_enhance, reference_image_url });
       setSynthesizedPrompt(null);
 
       try {
-        const jobResp = await generateVideo(prompt, { video_attributes, skip_enhance });
+        const jobResp = await generateVideo(prompt, { video_attributes, skip_enhance, reference_image_url });
 
         const newJob = {
           job_id: jobResp.job_id,
@@ -217,12 +220,34 @@ export default function App() {
     }
   }, []);
 
-  const handleSynthesizeVideo = useCallback(async ({ video_attributes, prompt = '' }) => {
+  const handleSynthesizeVideo = useCallback(async ({ video_attributes, prompt = '', referenceImage = null }) => {
     setIsSynthesizing(true);
     setSubmitError(null);
     setActiveMode('video');
     setLastSynthesizeRequest({ video_attributes, prompt });
     setLastSubmit(null);
+    setReferenceImageFile(referenceImage);
+    
+    // Upload reference image if provided (do it early so it's ready for generate)
+    if (referenceImage) {
+      setIsUploadingImage(true);
+      try {
+        const uploadRes = await uploadReferenceImage(referenceImage);
+        setReferenceImageUrl(uploadRes.url);
+      } catch (err) {
+        setSubmitError({
+          errorType: err.errorType ?? 'generic_failed',
+          message: err.userMessage ?? err.message ?? 'Failed to upload reference image',
+          provider: err.provider ?? '',
+        });
+        setIsUploadingImage(false);
+        setIsSynthesizing(false);
+        return;
+      }
+      setIsUploadingImage(false);
+    } else {
+      setReferenceImageUrl(null);
+    }
     
     try {
       const res = await synthesizePrompt({ mode: 'video', video_attributes, prompt });
@@ -339,7 +364,7 @@ export default function App() {
                           : {
                               status: isSynthesizing ? 'generating' : 'synthesized',
                               final_prompt: synthesizedPrompt,
-                              model: synthesizedMode === 'image' ? 'fal-ai/flux/dev' : 'luma/ray-flash-2-720p',
+                              model: synthesizedMode === 'image' ? 'fal-ai/flux/dev' : 'wan-video/wan-2.2-i2v-fast',
                               provider: synthesizedMode === 'image' ? 'fal.ai' : 'replicate',
                             }
                       }
@@ -362,7 +387,8 @@ export default function App() {
                               handleSubmitVideo({
                                 video_attributes: isEdited ? null : lastSynthesizeRequest?.video_attributes,
                                 prompt: editedFinalPrompt,
-                                skip_enhance: isEdited
+                                skip_enhance: isEdited,
+                                reference_image_url: referenceImageUrl,
                               });
                             }
                           }}

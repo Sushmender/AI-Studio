@@ -154,6 +154,8 @@ export async function generateVideo(prompt = '', opts = {}) {
       aspect_ratio: opts.aspect_ratio ?? '16:9',
       duration: opts.duration ?? 5,
       skip_enhance: opts.skip_enhance ?? false,
+      // Reference image URL for image-to-video (optional)
+      reference_image_url: opts.reference_image_url ?? null,
     }),
   });
 }
@@ -220,6 +222,46 @@ export async function getJobResult(jobId) {
     throw new ApiError({ errorType: 'rate_limit', message: ERROR_MESSAGES.rate_limit, status: 429 });
   }
   if (!response.ok) return null;
+
+  return response.json();
+}
+
+/**
+ * Upload a reference image for video generation.
+ * @param {File} file — image file (JPEG, PNG, WebP, max 5 MB)
+ * @returns {Promise<{ url: string, filename: string, size_bytes: number }>}
+ */
+export async function uploadReferenceImage(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  let response;
+  try {
+    response = await fetch(`${BASE}/upload/image`, {
+      method: 'POST',
+      body: formData,
+      // Note: do NOT set Content-Type — browser sets multipart boundary automatically
+    });
+  } catch (_networkErr) {
+    throw new ApiError({
+      errorType: 'network_offline',
+      message: ERROR_MESSAGES.network_offline,
+      status: 0,
+    });
+  }
+
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const body = await response.json();
+      detail = body?.detail || body?.message || '';
+    } catch (_) {}
+    throw new ApiError({
+      errorType: 'generic_failed',
+      message: detail || 'Failed to upload reference image',
+      status: response.status,
+    });
+  }
 
   return response.json();
 }

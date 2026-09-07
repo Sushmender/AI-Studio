@@ -30,8 +30,12 @@
  *   onSynthesize()   — called when user clicks Synthesize Prompt
  *   onReanalyse()    — called when user clicks Re-analyse
  *   isGenerating     — boolean (disables Generate button)
+ *   referenceImage   — File | null (attached reference image)
+ *   refImagePreviewUrl — string | null (object URL for thumbnail)
+ *   onRefImageChange — (file: File | null) => void
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { ReferenceImageUploader } from './ReferenceImageUploader';
 
 // ── Attribute taxonomy with 3 groups ────────────────────────────────────────
 
@@ -260,6 +264,9 @@ export function VideoAttributeEditor({
   onReanalyse,
   isGenerating,
   finalPrompt,
+  referenceImage,
+  refImagePreviewUrl,
+  onRefImageChange,
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -295,9 +302,21 @@ export function VideoAttributeEditor({
         ))}
       </div>
 
+      {/* Reference image preview (compact, in attribute editor) */}
+      {onRefImageChange && (
+        <div className="vattr-ref-image-section">
+          <ReferenceImageUploader
+            referenceImage={referenceImage}
+            previewUrl={refImagePreviewUrl}
+            onImageChange={onRefImageChange}
+            disabled={isGenerating}
+          />
+        </div>
+      )}
+
       {/* Audio disclaimer */}
       <p className="vattr-audio-notice">
-        🔇 <strong>Audio fields</strong> are used by Groq to guide the visual mood and atmosphere of the scene. The current model (<code>luma/ray-flash-2-720p</code>) does not render audio or dialogue.
+        🔇 <strong>Audio fields</strong> are used by Groq to guide the visual mood and atmosphere of the scene. The current model (<code>wan-video/wan-2.2-i2v-fast</code>) does not render audio or dialogue.
       </p>
 
       {/* Action bar */}
